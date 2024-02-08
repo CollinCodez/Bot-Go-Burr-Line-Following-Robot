@@ -1,0 +1,11 @@
+// This lists out all the commands that could be sent from the UI to the bot
+{
+	"commands":[
+		"startBot",
+		"stopBot",
+		"calibrateSensor",
+		"sendStateInfo",// Not yet implemented in the bot
+		"startEDF",// Not yet implemented in the bot
+		"stopEDF" // Not yet implemented in the bot
+	]
+}

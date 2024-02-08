@@ -1,0 +1,9 @@
+// This lays out all the data that could be sent from the bot to the UI
+{
+	"mainBatVoltage": 7.4,
+	"fanBatVoltage": 7.4,
+	"message": "message from the bot here",
+	"calibratingSensor": false,
+	"botRunning": false,
+	"edfRunning": false // Not yet implemented in the bot
+}
