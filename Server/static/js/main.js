@@ -1,3 +1,8 @@
+/*
+	This file contains the main JavaScript code for the web interface of the robot.
+	Much of the basis for this code came from Rui Santos's ESP32 tutorials: https://randomnerdtutorials.com/projects-esp32/
+	Modifications made by Collin Schofield, with assistance from Github Copilot.
+*/
 
 //=======================================================
 // Global variables

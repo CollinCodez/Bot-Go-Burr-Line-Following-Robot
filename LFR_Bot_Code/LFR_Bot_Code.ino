@@ -1,6 +1,7 @@
 /*
-	This Code is made for the "BotGoBrrr" Group Line Following Robot.
+	This Code is made for the "BotGoBrrr" Group (Group 2) Line Following Robot.
 	Code was wrote in majority by Collin Schofield, with assistance from Github Copilot.
+	Also, much of the basis for the networking code came from Rui Santos's ESP32 tutorials: https://randomnerdtutorials.com/projects-esp32/
 */
 
 #include <Arduino.h>
