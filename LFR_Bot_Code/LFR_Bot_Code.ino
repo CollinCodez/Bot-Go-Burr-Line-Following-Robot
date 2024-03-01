@@ -146,11 +146,11 @@ bool sendingJSON = false;// Variable to keep track of if we are currently sendin
 
 
 // Main Control Loop Wait times
-const unsigned long readSensorsTime = 100;		// Read Sensors from thermistor every this many milliseconds
-const unsigned long runControllerTime = 100;	// Run the control portion of the code every this many milliseconds
+const unsigned long readSensorsTime = 10;		// Read Sensors from thermistor every this many milliseconds
+const unsigned long runControllerTime = 10;	// Run the control portion of the code every this many milliseconds
 const float runControllerTimeSecs = runControllerTime /1000.;
-const unsigned long updateOutputTime = 100;		// Update output every this many milliseconds
-const unsigned long logDataTime = 1000;			// Send data to the web UI every this many milliseconds
+const unsigned long updateOutputTime = 10;		// Update output every this many milliseconds
+const unsigned long logDataTime = 100;			// Send data to the web UI every this many milliseconds
 
 // Main Control Loop run time logs
 unsigned long currentMillis = 0;
