@@ -68,6 +68,8 @@ struct ringBuffer{
 //	Global Variables & Defines
 //======================================================================================================
 
+#define SERIAL_ENABLED 1
+
 // WiFi Credentials
 #define WIFI_SSID "Collin-Laptop"
 #define WIFI_PASSWORD "blinkyblinky"
@@ -191,7 +193,13 @@ void initWiFi(){
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);// Start Wifi Connection
 	while(WiFi.status() != WL_CONNECTED){// Wait for WiFi to connect
 		delay(500);
+		#if SERIAL_ENABLED
+			Serial.print(".");
+		#endif
 	}
+	#if SERIAL_ENABLED
+		Serial.println("\nConnected to WiFi\n");
+	#endif
 }
 
 
@@ -267,6 +275,9 @@ void setupMotors(){
 
 // Function to send data to all clients on the web UI
 void notifyClients(String data) {
+	#if SERIAL_ENABLED
+		Serial.println("Sending Data to Web UI: " + data + "\n");
+	#endif
 	ws.textAll(data);
 }
 
@@ -454,10 +465,16 @@ void readBatteryVoltages(void *pvParameters){
 
 // Task to Send Data to Web UI
 void sendDataToUI(void *pvParameters){
+	#if SERIAL_ENABLED
+		Serial.println("Send Data to UI Task Running");
+	#endif
 	while(true){
 		// Wait for the SEND_DATA bit to be set
 		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, SEND_DATA, pdTRUE, pdFALSE, portMAX_DELAY);
 		if((bits & SEND_DATA) == SEND_DATA){
+			#if SERIAL_ENABLED
+				Serial.println("sendDataToUI Task: Sending Data to Web UI Triggered\n");
+			#endif
 			sendingJSON = true;// Set sendingJSON to true to prevent other tasks from modifying the JSON object
 
 			String tmp;
@@ -473,15 +490,24 @@ void sendDataToUI(void *pvParameters){
 
 // Main Controller Loop, running at Priority 5 on Core 0
 void mainControlLoop(void *pvParameters){
+	#if SERIAL_ENABLED
+		Serial.println("Main Control Loop Task Running");
+	#endif
 	while(true){
 		// Wait for the START_BOT bit to be set
 		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, START_BOT | CALIBRATE_SENSOR, pdTRUE, pdFALSE, portMAX_DELAY);
 
 		if((bits & CALIBRATE_SENSOR) != 0){// if the Calibrate Sensor Command was Recieved
+			#if SERIAL_ENABLED
+				Serial.println("Calibrating Sensor\n");
+			#endif
 			calibrateSensor();
 		}
 
 		if((bits & START_BOT) != 0){// if the Start Bot Command was Recieved
+			#if SERIAL_ENABLED
+				Serial.println("Starting Bot\n");
+			#endif
 			// Inform the Web UI that the bot is starting
 			while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 			messageJSON["botRunning"] = true;
@@ -493,6 +519,9 @@ void mainControlLoop(void *pvParameters){
 
 			// Start the Main Control Loop to move the bot, if the STOP_BOT bit is not set
 			while((tmpBits & STOP_BOT) == 0){
+				// #if SERIAL_ENABLED
+				// 	Serial.println("Main Control Loop Running\n");// NOTE: This runs every loop
+				// #endif
 				currentMillis = millis();
 				if(currentMillis - lastReadSensorsTime >= readSensorsTime){
 					lastReadSensorsTime = currentMillis;
@@ -547,6 +576,10 @@ void mainControlLoop(void *pvParameters){
 
 // Setup code, runs once
 void setup(){// this will automaticlally run on core 1
+	// if SERIAL_ENABLED is defined, then Serial will be enabled
+	#if SERIAL_ENABLED
+		Serial.begin(115200);
+	#endif
 	initWiFi();
 
 	// Setup line following sensor
@@ -623,6 +656,9 @@ void setup(){// this will automaticlally run on core 1
 // Main Code Loop
 void loop(){// this will automatically run on core 1
 	ws.cleanupClients();// This will be run occasionally to clean up the web socket clients
+	#if SERIAL_ENABLED
+		// Serial.println("Send Data to UI Task High Water Mark:" + uxTaskGetStackHighWaterMark(sendDataToUITask));
+	#endif
 	vTaskDelay(wsClientCleanupInterval);// Delay for 15 seconds
 }
 
