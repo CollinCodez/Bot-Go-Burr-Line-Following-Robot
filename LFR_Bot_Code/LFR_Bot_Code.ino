@@ -4,10 +4,14 @@
 	Also, much of the basis for the networking code came from Rui Santos's ESP32 tutorials: https://randomnerdtutorials.com/projects-esp32/
 */
 
+// #define CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS	1
+
 #include <Arduino.h>
 #include <WiFi.h>
 // #include <AsyncTCP.h>// Included in the ESPAsyncWebServer library
 #include <ESPAsyncWebServer.h>// This will automatically use whatever core is available, at priority 3
+// #include <HTTPClient.h>
+// #include <WebServer.h>
 // #include <InfluxDbClient.h>
 #include <ArduinoJson.h>
 #include <QTRSensors.h>
@@ -71,7 +75,7 @@ struct ringBuffer{
 #define SERIAL_ENABLED 1
 
 // WiFi Credentials
-#define WIFI_SSID "Collin-Laptop"
+#define WIFI_SSID "COLLIN-LAPTOP"
 #define WIFI_PASSWORD "blinkyblinky"
 
 // Web Server Variables
@@ -160,6 +164,7 @@ unsigned long lastLogDataTime = 0;
 const TickType_t batCheckDelay = 30000 / portTICK_PERIOD_MS; // Value in ms
 // const TickType_t controlLoopInterval = 10 / portTICK_PERIOD_MS; // Value in ms
 const TickType_t wsClientCleanupInterval = 15000 / portTICK_PERIOD_MS; // Value in ms
+const TickType_t uiDataSendInterval = 30000 / portTICK_PERIOD_MS; // Value in ms
 
 
 // Handles for Tasks to run on various cores with different priorities
@@ -190,6 +195,7 @@ EventGroupHandle_t mainEventGroup;
 // Function to setup the WiFi connection
 void initWiFi(){
 	WiFi.mode(WIFI_STA);// Set WiFi mode to Station (Connecting to some other access point, ie a laptop's hotspot)
+	// WiFi.config(IPAddress(192,168,137,2), IPAddress(192,168,137,1),IPAddress(255,255,255,0));// Set Static IP Address (IP, Gateway, Subnet Mask). NOTE: This line does not work on Laptop Hotspot
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);// Start Wifi Connection
 	while(WiFi.status() != WL_CONNECTED){// Wait for WiFi to connect
 		delay(500);
@@ -283,46 +289,125 @@ void notifyClients(String data) {
 
 
 
-// Function to handle WebSocket messages. This is run in the Web Server thread with priority 3
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
-	AwsFrameInfo *info = (AwsFrameInfo*)arg;
-	if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-		data[len] = 0;
-		String message = (char*)data;
+// Function to handle the verified content of the WebSocket Messages. This is run in the Web Server thread with priority 3
+void selectCommand(char* msg){
 		// Check what the message is and set the appropriate bit in the event group
-		if (strcmp((char*)data, "startBot") == 0) {
+	if (strcmp(msg, "startBot") == 0) {
 			xEventGroupSetBits(mainEventGroup, START_BOT);// Set the START_BOT bit
-		}else if (strcmp((char*)data, "stopBot") == 0) {
+	}else if (strcmp(msg, "stopBot") == 0) {
 			xEventGroupSetBits(mainEventGroup, STOP_BOT);// Set the STOP_BOT bit
-		}else if (strcmp((char*)data, "calibrateSensor") == 0) {
+	}else if (strcmp(msg, "calibrateSensor") == 0) {
 			xEventGroupSetBits(mainEventGroup, CALIBRATE_SENSOR);// Set the CALIBRATE_SENSOR bit
-		}else if (strcmp((char*)data, "sendStateInfo") == 0) {
+	}else if (strcmp(msg, "sendStateInfo") == 0) {
 			xEventGroupSetBits(mainEventGroup, SEND_STATE_INFO);// Set the READ_SENSORS bit
-		}else if (strcmp((char*)data, "startEDF") == 0) {
+	}else if (strcmp(msg, "startEDF") == 0) {
 			xEventGroupSetBits(mainEventGroup, START_EDF);// Set the START_EDF bit
-		}else if (strcmp((char*)data, "stopEDF") == 0) {
+	}else if (strcmp(msg, "stopEDF") == 0) {
 			xEventGroupSetBits(mainEventGroup, STOP_EDF);// Set the STOP_EDF bit
-		}
 	}
 }
 
 
 
 // AwsEventHandler Function
-AwsEventHandler onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
-	switch (type) {
-		case WS_EVT_CONNECT:
-		//	Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-			break;
-		case WS_EVT_DISCONNECT:
-		//	Serial.printf("WebSocket client #%u disconnected\n", client->id());
-			break;
-		case WS_EVT_DATA:
-			handleWebSocketMessage(arg, data, len);
-			break;
-		case WS_EVT_PONG:
-		case WS_EVT_ERROR:
-			break;
+void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
+	if(type == WS_EVT_CONNECT){
+		//client connected
+		#if SERIAL_ENABLED
+			Serial.printf("ws[%s][%u] connect\n", server->url(), client->id());
+		#endif
+		client->printf("{\"message\": \"Hello Client %u :)\"}", client->id());
+		client->ping();
+	} else if(type == WS_EVT_DISCONNECT){
+		//client disconnected
+		#if SERIAL_ENABLED
+			Serial.printf("ws[%s][%u] disconnect: %u\n", server->url(), client->id());
+		#endif
+	} else if(type == WS_EVT_ERROR){
+		//error was received from the other end
+		#if SERIAL_ENABLED
+			Serial.printf("ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t*)arg), (char*)data);
+		#endif
+	} else if(type == WS_EVT_PONG){
+		//pong message was received (in response to a ping request maybe)
+		#if SERIAL_ENABLED
+			Serial.printf("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len)?(char*)data:"");
+		#endif
+	} else if(type == WS_EVT_DATA){
+		//data packet
+		AwsFrameInfo * info = (AwsFrameInfo*)arg;
+		if(info->final && info->index == 0 && info->len == len){
+			//the whole message is in a single frame and we got all of it's data
+			#if SERIAL_ENABLED
+				Serial.printf("ws[%s][%u] %s-message[%llu]: ", server->url(), client->id(), (info->opcode == WS_TEXT)?"text":"binary", info->len);
+			#endif
+			if(info->opcode == WS_TEXT){
+				data[len] = 0;// Set last character to null terminator
+				#if SERIAL_ENABLED
+					Serial.printf("%s\n", (char*)data);
+				#endif
+				selectCommand((char*)data);
+			} else {
+				for(size_t i=0; i < info->len; i++){
+					#if SERIAL_ENABLED
+						Serial.printf("%02x ", data[i]);
+					#endif
+				}
+				#if SERIAL_ENABLED
+					Serial.printf("\n");
+				#endif
+			}
+			if(info->opcode == WS_TEXT)
+				client->text("{\"message\": \"I got your text message\"}");
+			else
+				client->binary("{\"message\": \"I got your binary message\"}");
+		} else {
+			//message is comprised of multiple frames or the frame is split into multiple packets
+			if(info->index == 0){
+				if(info->num == 0){
+					#if SERIAL_ENABLED
+						Serial.printf("ws[%s][%u] %s-message start\n", server->url(), client->id(), (info->message_opcode == WS_TEXT)?"text":"binary");
+					#endif
+				}
+				#if SERIAL_ENABLED
+					Serial.printf("ws[%s][%u] frame[%u] start[%llu]\n", server->url(), client->id(), info->num, info->len);
+				#endif
+			}
+
+			#if SERIAL_ENABLED
+				Serial.printf("ws[%s][%u] frame[%u] %s[%llu - %llu]: ", server->url(), client->id(), info->num, (info->message_opcode == WS_TEXT)?"text":"binary", info->index, info->index + len);
+			#endif
+			if(info->message_opcode == WS_TEXT){
+				data[len] = 0;
+				#if SERIAL_ENABLED
+					Serial.printf("%s\n", (char*)data);
+				#endif
+			} else {
+				for(size_t i=0; i < len; i++){
+					#if SERIAL_ENABLED
+						Serial.printf("%02x ", data[i]);
+					#endif
+				}
+				#if SERIAL_ENABLED
+					Serial.printf("\n");
+				#endif
+			}
+
+			if((info->index + len) == info->len){
+				#if SERIAL_ENABLED
+					Serial.printf("ws[%s][%u] frame[%u] end[%llu]\n", server->url(), client->id(), info->num, info->len);
+				#endif
+				if(info->final){
+					#if SERIAL_ENABLED
+						Serial.printf("ws[%s][%u] %s-message end\n", server->url(), client->id(), (info->message_opcode == WS_TEXT)?"text":"binary");
+					#endif
+					if(info->message_opcode == WS_TEXT)
+						client->text("{\"message\": \"I got your text message\"}");
+					else
+						client->binary("{\"message\": \"I got your binary message\"}");
+				}
+			}
+		}
 	}
 }
 
@@ -470,7 +555,7 @@ void sendDataToUI(void *pvParameters){
 	#endif
 	while(true){
 		// Wait for the SEND_DATA bit to be set
-		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, SEND_DATA, pdTRUE, pdFALSE, portMAX_DELAY);
+		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, SEND_DATA, pdTRUE, pdFALSE, uiDataSendInterval);
 		if((bits & SEND_DATA) == SEND_DATA){
 			#if SERIAL_ENABLED
 				Serial.println("sendDataToUI Task: Sending Data to Web UI Triggered\n");
@@ -488,13 +573,13 @@ void sendDataToUI(void *pvParameters){
 
 
 
-// Main Controller Loop, running at Priority 5 on Core 0
+// Main Controller Loop, running at Priority 0 on Core 0. It must run at priority 0 to control the core full time
 void mainControlLoop(void *pvParameters){
 	#if SERIAL_ENABLED
 		Serial.println("Main Control Loop Task Running");
 	#endif
 	while(true){
-		// Wait for the START_BOT bit to be set
+		// Wait for the START_BOT or CALIBRATE_SENSOR bit to be set
 		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, START_BOT | CALIBRATE_SENSOR, pdTRUE, pdFALSE, portMAX_DELAY);
 
 		if((bits & CALIBRATE_SENSOR) != 0){// if the Calibrate Sensor Command was Recieved
@@ -626,7 +711,7 @@ void setup(){// this will automaticlally run on core 1
 		"Main Control Loop", // Task Name
 		10000,				// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
 		NULL,				// Parameters
-		5,					// Priority 5
+		0,					// Priority 0
 		&mainControlLoopTask,// Task Handle
 		0					// Core 0
 	);
@@ -647,6 +732,7 @@ void setup(){// this will automaticlally run on core 1
 	// vTaskDelayUntil();// Older version of the above function
 	// vTaskDelay();
 	// taskYIELD();
+	// vTaskGetRunTimeStats;
 
 	// ws.cleanupClients();// This should be run occasionally somewhere
 }
