@@ -9,7 +9,7 @@
 //=======================================================
 
 // var botPath = `ws://${window.location.hostname}/ws`;
-var botPath = `ws://192.168.127.2:80/ws`;
+var botPath = `ws://192.168.137.11:80/ws`;
 var websocket;
 
 window.addEventListener('load', onload);// Initialize the websocket when the page is loaded
@@ -89,7 +89,8 @@ function onClose(event) {
 
 // Function that receives the message from the ESP32 with the readings
 function onMessage(event) {
-	console.log(event.data);// Print the recieved data in the console
+	console.log(JSON.parse(event.data));// Print the recieved data in the console
+	// consolge.log(event);
 	var receivedObj = JSON.parse(event.data);
 	var keys = Object.keys(receivedObj);
 

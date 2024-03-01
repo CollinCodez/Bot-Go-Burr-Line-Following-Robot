@@ -13,10 +13,10 @@ h1 {
 	font-size: 1.8rem;
 	color: white;
 }
-/* .topnav {
+.topnav {
 	overflow: hidden;   
 	background-color: #0A1128;
-} */
+}
 body {
 	margin: 0;
 }
