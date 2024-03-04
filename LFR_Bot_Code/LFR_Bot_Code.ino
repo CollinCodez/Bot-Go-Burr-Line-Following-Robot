@@ -25,30 +25,30 @@
 // GPIO 6-11 are for the flash interface. They seem to be connected to flash chip and should probably be avoided
 
 // Battery Analog Reading Pins
-const int mainBatPin = 36;// GPIO36 - ADC 0
-const int fanBatPin = 39;// GPIO39 - ADC 3
+const gpio_num_t mainBatPin = GPIO_NUM_36;// GPIO36 - ADC 0
+const gpio_num_t fanBatPin = GPIO_NUM_39;// GPIO39 - ADC 3
 
 // Motor Pins
-const int motorStandbyPin = 13;// Pin to enable the motor driver as a whole. Low = Standby, High = Active
+// const int motorStandbyPin = 13;
 
-const int leftMotorPin1 = 34;
-const int leftMotorPin2 = 35;
-const int leftMotorPWMPin = 32;
+const gpio_num_t leftMotorPWMPin = GPIO_NUM_22;
+const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 
-const int rightMotorPin1 = 33;
-const int rightMotorPin2 = 25;
-const int rightMotorPWMPin = 26;
+// Shift Register Pins (for the motor driver)
+const gpio_num_t SRDataPin = GPIO_NUM_33;
+const gpio_num_t SRClkPin = GPIO_NUM_25;
+const gpio_num_t SRLatchPin = GPIO_NUM_26;
 
 
 // Sensor Pins  
-const uint8_t sensorPins[] = {23, 22, 1, 3, 21, 19, 18, 5, 17, 16, 4, 0, 2, 15, 13};
+const uint8_t sensorPins[] = {18, 34, 5, 35, 17, 32, 16, 27, 4, 14, 0, 12, 2, 13, 15};
 const uint8_t sensorCount = 15; // This is NOT a pin.
 
-const uint8_t sensorEmitterPin = 27;// We may want to split this to two pins at some point, depending on performance
+const gpio_num_t sensorEmitterPin = GPIO_NUM_19;// We may want to split this to two pins at some point, depending on performance
 
 
 // EDF pin
-const int edfPin = 12;
+const gpio_num_t edfPin = GPIO_NUM_21;
 
 
 
@@ -62,6 +62,25 @@ const int edfPin = 12;
 struct ringBuffer{
 	float buffer[RING_BUFFER_SIZE];
 	size_t startIndex;
+};
+
+
+
+// Struct to store the outputs of the Shift Register
+struct SROutputs {
+	union {// Using a union between the anonymous struct and the byte all to allow for easy access to all values sent to shift register outputs, while also allowing for easy access to the byte as a whole
+		struct{// Anonymous Struct of 8 single bit bools to represent the outputs of the shift register
+			bool q0:1;
+			bool leftMotorPin2	:1;
+			bool leftMotorPin1	:1;
+			bool motorStandbyPin:1;// Pin to enable the motor driver as a whole. Low = Standby, High = Active
+			bool rightMotorPin1	:1;
+			bool rightMotorPin2	:1;
+			bool q6:1;
+			bool q7:1;
+		};
+		byte all;
+	};
 };
 
 
@@ -107,11 +126,12 @@ uint16_t sensorLinePosition;
 
 
 // Motor PWM Properties
-const int motorPWMFreq = 5000;// Max frequency of Motor Driver is 100 kHz, so using 5 kHz for now. This will also work with up to a max resolution of 13 bits
-const int motorPWMResolution = 8;// 8 bit resolution for PWM. We may want to try a higher resolution at some point
+const uint16_t motorPWMFreq = 5000;// Max frequency of Motor Driver is 100 kHz, so using 5 kHz for now. This will also work with up to a max resolution of 13 bits
+const uint8_t motorPWMResolution = 8;// 8 bit resolution for PWM. We may want to try a higher resolution at some point
 const uint16_t motorMaxSpeed = (1 << motorPWMResolution) - 1;// Max Speed for the motors, 255 for 8 bit PWM
-const int leftMotorPWMChannel = 0;
-const int rightMotorPWMChannel = 1;
+const uint8_t leftMotorPWMChannel = 0;
+const uint8_t rightMotorPWMChannel = 1;
+struct SROutputs motorSR;// Struct to store the outputs of the Shift Register for the motor driver's state inputs
 
 
 // PID Variables
@@ -239,22 +259,25 @@ void calibrateSensor(){
 // Function to setup the motor pins
 void setupMotors(){
 	// Set Motor Pins to Output
-	pinMode(motorStandbyPin, OUTPUT);
-	pinMode(leftMotorPin1, OUTPUT);
-	pinMode(leftMotorPin2, OUTPUT);
 	pinMode(leftMotorPWMPin, OUTPUT);
-	pinMode(rightMotorPin1, OUTPUT);
-	pinMode(rightMotorPin2, OUTPUT);
 	pinMode(rightMotorPWMPin, OUTPUT);
 
-	// Set Motor Standby Pin to Low to Disable the motor driver until we are ready to use it
-	digitalWrite(motorStandbyPin, LOW);
+	// Set pin modes of the shift register pins
+	pinMode(SRDataPin, OUTPUT);
+	pinMode(SRClkPin, OUTPUT);
+	pinMode(SRLatchPin, OUTPUT);
+
+	// Set the default states of the motor shift register outputs
+	motorSR.motorStandbyPin = LOW;// Set Motor Standby Pin to Low to Disable the motor driver until we are ready to use it
 
 	// Set Motor Pins to Values to go forward (bot will not move because standby pin is set low)
-	digitalWrite(leftMotorPin1, HIGH);
-	digitalWrite(leftMotorPin2, LOW);
-	digitalWrite(rightMotorPin1, LOW);
-	digitalWrite(rightMotorPin2, HIGH);
+	motorSR.leftMotorPin1 = HIGH;
+	motorSR.leftMotorPin2 = LOW;
+	motorSR.rightMotorPin1 = LOW;
+	motorSR.rightMotorPin2 = HIGH;
+
+	// Send the motor state to the shift register
+	setMotorState();
 
 	// Set PWM Frequency and Resolution. ledc is the PWM library for the ESP32, since the ESP32 also has a true analog output
 	ledcSetup(leftMotorPWMChannel, motorPWMFreq, motorPWMResolution);
@@ -441,6 +464,19 @@ void addPointToBuffer(ringBuffer *buffer, float value){
 
 
 
+// Function to send data to shift register
+void setMotorState(){
+	// Send the motor state to the shift register
+	digitalWrite(SRLatchPin, LOW);
+	shiftOut(SRDataPin, SRClkPin, MSBFIRST, motorSR.all);
+	digitalWrite(SRLatchPin, HIGH);
+
+}
+
+
+
+
+
 //======================================================================================================
 //	Control Functions
 //======================================================================================================
@@ -598,7 +634,8 @@ void mainControlLoop(void *pvParameters){
 			messageJSON["botRunning"] = true;
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 
-			digitalWrite(motorStandbyPin, HIGH);// Set Motor Standby Pin to High to Enable the motor driver
+			motorSR.motorStandbyPin = HIGH;// Set Motor Standby Pin to High to Enable the motor driver
+			setMotorState();// Send the updated motor state to the shift register
 
 			EventBits_t tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set
 
@@ -641,7 +678,8 @@ void mainControlLoop(void *pvParameters){
 			}// End of the loop for while the bot is running. Exit if the STOP_BOT bit is set
 
 			// Set Motor Standby Pin to Low to Disable the motor driver
-			digitalWrite(motorStandbyPin, LOW);
+			motorSR.motorStandbyPin = LOW;
+			setMotorState();// Send the updated motor state to the shift register
 
 			// Inform the Web UI that the bot has stopped
 			while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
