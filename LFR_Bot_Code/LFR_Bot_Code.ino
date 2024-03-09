@@ -34,12 +34,6 @@ const gpio_num_t fanBatPin = GPIO_NUM_39;// GPIO39 - ADC 3
 const gpio_num_t leftMotorPWMPin = GPIO_NUM_22;
 const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 
-// Shift Register Pins (for the motor driver)
-const gpio_num_t SRDataPin = GPIO_NUM_33;
-const gpio_num_t SRClkPin = GPIO_NUM_25;
-const gpio_num_t SRLatchPin = GPIO_NUM_26;
-
-
 // Sensor Pins  
 const uint8_t sensorPins[] = {18, 34, 5, 35, 17, 32, 16, 27, 4, 14, 0, 12, 2, 13, 15};
 const uint8_t sensorCount = 15; // This is NOT a pin.
@@ -62,25 +56,6 @@ const gpio_num_t edfPin = GPIO_NUM_21;
 struct ringBuffer{
 	float buffer[RING_BUFFER_SIZE];
 	size_t startIndex;
-};
-
-
-
-// Struct to store the outputs of the Shift Register
-struct SROutputs {
-	union {// Using a union between the anonymous struct and the byte all to allow for easy access to all values sent to shift register outputs, while also allowing for easy access to the byte as a whole
-		struct{// Anonymous Struct of 8 single bit bools to represent the outputs of the shift register
-			bool q0:1;
-			bool leftMotorPin2	:1;
-			bool leftMotorPin1	:1;
-			bool motorStandbyPin:1;// Pin to enable the motor driver as a whole. Low = Standby, High = Active
-			bool rightMotorPin1	:1;
-			bool rightMotorPin2	:1;
-			bool q6:1;
-			bool q7:1;
-		};
-		byte all;
-	};
 };
 
 
@@ -155,14 +130,12 @@ int32_t output = 0;											// Output to the motors
 float error;												// Setpoint minus measured value
 
 
-// struct ringBuffer errorBuffer = {{0.}, 127};				// Ring Buffer to store error values
-// struct ringBuffer *errorBuffer;							// Ring Buffer to store error values
 struct ringBuffer errorBuffer = {0};						// Ring Buffer to store error values
 
 
 // Web UI Data
-JsonDocument messageJSON;// JSON Object to store data to send to the web UI
-bool sendingJSON = false;// Variable to keep track of if we are currently sending data to the web UI
+JsonDocument messageJSON;			// JSON Object to store data to send to the web UI
+bool sendingJSON = false;			// Variable to keep track of if we are currently sending data to the web UI
 
 
 // Main Control Loop Wait times
@@ -259,25 +232,12 @@ void calibrateSensor(){
 // Function to setup the motor pins
 void setupMotors(){
 	// Set Motor Pins to Output
+	pinMode(motorStandbyPin, OUTPUT);
 	pinMode(leftMotorPWMPin, OUTPUT);
 	pinMode(rightMotorPWMPin, OUTPUT);
 
-	// Set pin modes of the shift register pins
-	pinMode(SRDataPin, OUTPUT);
-	pinMode(SRClkPin, OUTPUT);
-	pinMode(SRLatchPin, OUTPUT);
-
 	// Set the default states of the motor shift register outputs
-	motorSR.motorStandbyPin = LOW;// Set Motor Standby Pin to Low to Disable the motor driver until we are ready to use it
-
-	// Set Motor Pins to Values to go forward (bot will not move because standby pin is set low)
-	motorSR.leftMotorPin1 = HIGH;
-	motorSR.leftMotorPin2 = LOW;
-	motorSR.rightMotorPin1 = LOW;
-	motorSR.rightMotorPin2 = HIGH;
-
-	// Send the motor state to the shift register
-	setMotorState();
+	digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver until we are ready to use it
 
 	// Set PWM Frequency and Resolution. ledc is the PWM library for the ESP32, since the ESP32 also has a true analog output
 	ledcSetup(leftMotorPWMChannel, motorPWMFreq, motorPWMResolution);
@@ -288,8 +248,8 @@ void setupMotors(){
 	ledcAttachPin(rightMotorPWMPin, rightMotorPWMChannel);
 
 	// Set PWM Values to Max Value to start
-	ledcWrite(leftMotorPWMChannel, (1 << motorPWMResolution) - 1);
-	ledcWrite(rightMotorPWMChannel, (1 << motorPWMResolution) - 1);
+	ledcWrite(leftMotorPWMChannel, motorMaxSpeed);
+	ledcWrite(rightMotorPWMChannel, motorMaxSpeed);
 }
 
 
@@ -464,17 +424,6 @@ void addPointToBuffer(ringBuffer *buffer, float value){
 
 
 
-// Function to send data to shift register
-void setMotorState(){
-	// Send the motor state to the shift register
-	digitalWrite(SRLatchPin, LOW);
-	shiftOut(SRDataPin, SRClkPin, MSBFIRST, motorSR.all);
-	digitalWrite(SRLatchPin, HIGH);
-
-}
-
-
-
 
 
 //======================================================================================================
@@ -634,8 +583,7 @@ void mainControlLoop(void *pvParameters){
 			messageJSON["botRunning"] = true;
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 
-			motorSR.motorStandbyPin = HIGH;// Set Motor Standby Pin to High to Enable the motor driver
-			setMotorState();// Send the updated motor state to the shift register
+			digitalWrite(motorStandbyPin, HIGH);// Set Motor Standby Pin to High to Enable the motor driver
 
 			EventBits_t tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set
 
@@ -678,8 +626,7 @@ void mainControlLoop(void *pvParameters){
 			}// End of the loop for while the bot is running. Exit if the STOP_BOT bit is set
 
 			// Set Motor Standby Pin to Low to Disable the motor driver
-			motorSR.motorStandbyPin = LOW;
-			setMotorState();// Send the updated motor state to the shift register
+			digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver
 
 			// Inform the Web UI that the bot has stopped
 			while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
