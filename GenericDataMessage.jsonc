@@ -1,9 +1,23 @@
 // This lays out all the data that could be sent from the bot to the UI
 {
-	"mainBatVoltage": 7.4,
+	"mainBaVtoltage": 7.4,
 	"fanBatVoltage": 7.4,
 	"message": "message from the bot here",
 	"calibrating": false,
 	"botRunning": false,
-	"edfRunning": false // Not yet implemented in the bot
+	"edfRunning": false, // Not yet implemented in the bot
+	"motorMaxSpeed": 1023,
+	"motorAbsMaxSpeed": 1023,
+	"sensorLinePosition": 0,
+	"logRunTimes": false,
+	"consts":{
+		"kp": 0.0,
+		"ki": 0.0,
+		"kd": 0.0
+	},
+	"runTimes": {
+		"sensorReadTime": 0,
+		"calcPIDTime": 0,
+		"updateOutputTime": 0
+	}
 }

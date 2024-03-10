@@ -1,11 +1,25 @@
 // This lists out all the commands that could be sent from the UI to the bot
 {
-	"commands":[
+	"cmd":[
 		"startBot",
 		"stopBot",
 		"calibrateSensor",
 		"sendStateInfo",// Not yet implemented in the bot
 		"startEDF",// Not yet implemented in the bot
-		"stopEDF" // Not yet implemented in the bot
-	]
+		"stopEDF",// Not yet implemented in the bot
+		"getPID",
+		"updatePID",
+		"savePID",
+		"readSensor",
+		"cleariError",
+		"runTimeLogOn",
+		"runTimeLogOff",
+		"updateMotorMaxSpeed",
+		"getMotorMaxSpeed",
+		"getState"
+	],
+	"Kp": 0.0,
+	"Ki": 0.0,
+	"Kd": 0.0,
+	"newMotorMaxSpeed": 1023
 }

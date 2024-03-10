@@ -18,29 +18,127 @@
 				<h1>LFR Dashboard</h1>
 			<!-- </div> -->
 		</div>
-		<div class = "content">
-			<div class = "card-grid"><!-- 1st row of cards -->
-				<div class = "card">
-					<p class = "card-title">Calibrating Sensor?</p>
-					<p class = "card-value"><span id="calibrating"></span></p>
+		<div class = "flex-container">
+			<div class = "content">
+				<div class = "card-grid"><!-- 1st row of cards -->
+					<button class = "card" id="calibrateButton" onclick="calibrateSensor()">
+						<p class = "card-title">Calibrating?</p>
+						<p class = "card-value"><span id="calibrating"></span></p>
+					</button>
+					<button class = "card" id="botRunningButton" onclick="toggleBot()">
+						<p class = "card-title">Bot Running?</p>
+						<p class = "card-value"><span id="botRunning"></span></p>
+					</button>
+					<div class = "card">
+						<p class = "card-title">EDF Running?</p>
+						<p class = "card-value"><span id="edfRunning"></span></p>
+					</div>
 				</div>
-				<div class = "card">
-					<p class = "card-title">Bot Running?</p>
-					<p class = "card-value"><span id="botRunning"></span></p>
+				<br>
+				<div class = "card-grid"><!-- 2nd row of cards -->
+					<div class = "card">
+						<p class = "card-title">Main Battery Voltage</p>
+						<p class = "card-value"><span id="mainBatVoltage"></span> V</p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Fan Battery Voltage</p>
+						<p class = "card-value"><span id="fanBatVoltage"></span> V</p>
+					</div>
+					<button class = "card" id="checkSensorButton" onclick="readSensor()">
+						<p class = "card-title">Sensor Reading</p>
+						<p class = "card-value"><span id="sensorLinePosition"></span></p>
+					</button>
 				</div>
-				<div class = "card">
-					<p class = "card-title">EDF Running?</p>
-					<p class = "card-value"><span id="edfRunning"></span></p>
+				<br>
+				<button class="card-grid" id="logRunTimes" onclick="toggleRuntimeLogging()"></button>
+				<br>
+				<div class="card-grid"><!-- 3rd row of cards -->
+					<div class = "card">
+						<p class = "card-title">Sensor Read Time</p>
+						<p class = "card-value"><span id="sensorReadTime"></span> ms</p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Controller Calc Time</p>
+						<p class = "card-value"><span id="calcPIDTime"></span> ms</p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Update Output Time</p>
+						<p class = "card-value"><span id="updateOutputTime"></span> ms</p>
+					</div>
 				</div>
-			<div class = "card-grid"><!-- 2nd row of cards -->
-				<div class = "card">
-					<p class = "card-title">Main Battery Voltage</p>
-					<p class = "card-value"><span id="mainBatVoltage"></span> V</p>
+				<!-- <br>
+				<div class="card-grid">4th row of cards
+					<div class = "card">
+						<p class = "card-title">Left Motor Speed</p>
+						<p class = "card-value"><span id="leftMotorSpeed"></span> RPM</p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Right Motor Speed</p>
+						<p class = "card-value"><span id="rightMotorSpeed"></span> RPM</p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Error</p>
+						<p class = "card-value"><span id="error"></span></p>
+					</div>
+				</div> -->
+			</div>
+			<!-- Section for PID info and Form -->
+			<div class = "content">
+				<div class = "card-grid"><!-- Right Half Section of Cards -->
+					<div class = "card">
+						<p class = "card-title">KP</p>
+						<p class = "card-value"><span id="kp"></span></p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">KI</p>
+						<p class = "card-value"><span id="ki"></span></p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">KD</p>
+						<p class = "card-value"><span id="kd"></span></p>
+					</div>
 				</div>
-				<div class = "card">
-					<p class = "card-title">Fan Battery Voltage</p>
-					<p class = "card-value"><span id="fanBatVoltage"></span> V</p>
+				<br>
+				<form>
+					<div class = "card-grid"><!-- Form for updating PID constants -->
+						<div class = "card">
+							<label for="newTmpKP">New KP: </label>
+							<input type="number" id="newTmpKP" step="0.001" name="newTmpKP">
+						</div>
+						<div class = "card">
+							<label for="newTmpKI">New KI: </label>
+							<input type="number" id="newTmpKI" step="0.001" name="newTmpKI">
+						</div>
+						<div class = "card">
+							<label for="newTmpKD">New KD: </label>
+							<input type="number" id="newTmpKD" step="0.001" name="newTmpKD">
+						</div>
+					</div>
+				</form>
+				<button onclick="submitForm()">Update Constants</button>
+				<button onclick="savePID()">Save Current PID Constants</button>
+				<button onclick="clearIError()">Clear the iError Value</button>
+				<br><br>
+				<div class = "card-grid">
+					<div class = "card">
+						<p class = "card-title">Motor Abs Max Speed</p>
+						<p class = "card-value"><span id="motorAbsMaxSpeed"></span></p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">Motor Limited Max Speed</p>
+						<p class = "card-value"><span id="motorMaxSpeed"></span></p>
+					</div>
 				</div>
+				<br>
+				<form>
+					<div class = "card-grid">
+						<div class = "card">
+							<label for="newTmpMaxSpeed">New Max Speed: </label>
+							<input type="number" id="newTmpMaxSpeed" step="1" name="newTmpMaxSpeed">
+						</div>
+					</div>
+				</form>
+				<button onclick="submitMaxSpeedForm()">Update Max Speed</button>
 			</div>
 		</div>
 	</body>
