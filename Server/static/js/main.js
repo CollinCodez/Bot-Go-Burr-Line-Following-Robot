@@ -9,7 +9,7 @@
 //=======================================================
 
 // var botPath = `ws://${window.location.hostname}/ws`;
-var botPath = `ws://192.168.137.22:80/ws`;
+var botPath = `ws://192.168.1.4:80/ws`;
 var websocket;
 
 window.addEventListener('load', onload);// Initialize the websocket when the page is loaded
