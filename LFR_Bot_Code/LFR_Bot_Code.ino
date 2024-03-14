@@ -71,6 +71,7 @@ struct ringBuffer{
 //======================================================================================================
 
 #define SERIAL_ENABLED 0
+#define NO_WIRELESS 0
 
 // WiFi Credentials
 // #define WIFI_SSID "COLLIN-LAPTOP"
@@ -241,9 +242,11 @@ void calibrateSensor(){
 	// Ideally, I would like to add a way to display if the sensor is calibrating on the web interface
 
 	// Inform the Web UI that calibration is starting
+	#if (!NO_WIRELESS)
 	while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = true;
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+	#endif
 
 	// 2.5 ms RC read timeout (default) * 10 reads per calibrate() call
 	// = ~25 ms per calibrate() call.
@@ -253,10 +256,12 @@ void calibrateSensor(){
 		qtr.calibrate(sensorReadMode);
 	}
 
+	#if (!NO_WIRELESS)
 	// Inform Web UI that calibration is complete
 	while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = false;
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+	#endif
 }
 
 
@@ -716,6 +721,7 @@ void mainControlLoop(void *pvParameters){
 	#if SERIAL_ENABLED
 		Serial.println("Main Control Loop Task Running");
 	#endif
+	#if (!NO_WIRELESS)
 	while(true){
 		// Wait for the START_BOT or CALIBRATE_SENSOR bit to be set
 		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, START_BOT | CALIBRATE_SENSOR, pdTRUE, pdFALSE, portMAX_DELAY);
@@ -742,6 +748,7 @@ void mainControlLoop(void *pvParameters){
 
 			// Start the Main Control Loop to move the bot, if the STOP_BOT bit is not set
 			while((tmpBits & STOP_BOT) == 0){
+	#endif
 				// #if SERIAL_ENABLED
 				// 	Serial.println("Main Control Loop Running\n");// NOTE: This runs every loop
 				// #endif
@@ -791,6 +798,7 @@ void mainControlLoop(void *pvParameters){
 				// 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 				// }
 
+	#if (!NO_WIRELESS)
 				tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set, no wait time
 			}// End of the loop for while the bot is running. Exit if the STOP_BOT bit is set
 
@@ -803,6 +811,7 @@ void mainControlLoop(void *pvParameters){
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 		}// End of the Start Bot Command
 	}// End of the main control loop infinite loop
+	#endif
 }
 
 
@@ -821,7 +830,9 @@ void setup(){// this will automaticlally run on core 1
 	#if SERIAL_ENABLED
 		Serial.begin(115200);
 	#endif
-	initWiFi();
+	#if (!NO_WIRELESS)
+		initWiFi();// Initialize the WiFi connection, if the NO_WIRELESS flag is not set
+	#endif
 
 	// Setup line following sensor
 	qtr.setTypeRC();
@@ -849,12 +860,15 @@ void setup(){// this will automaticlally run on core 1
 	setupMotors();
 
 	// Set Up WebSocket
+	#if (!NO_WIRELESS)
 	initWebSocket();
 	server.begin();// Start the web server. Automatically makes a new task at priority 3, on whatever core is available.
+	#endif
 
 	// Set Up Event Group
 	mainEventGroup = xEventGroupCreate();
 
+	#if (!NO_WIRELESS)
 	// Create Tasks
 	// Create Task for reading battery voltages
 	xTaskCreatePinnedToCore(
@@ -888,6 +902,12 @@ void setup(){// this will automaticlally run on core 1
 		&mainControlLoopTask,// Task Handle
 		0					// Core 0. This task should get this core to itself
 	);
+	#endif
+
+	#if NO_WIRELESS
+		calibrateSensor();
+		digitalWrite(motorStandbyPin, HIGH);
+	#endif
 
 
 
@@ -914,16 +934,20 @@ void setup(){// this will automaticlally run on core 1
 
 // "Main" Code Loop. This is used to monitor the stack high water marks and free heap, and to clean up the web socket clients
 void loop(){// this will automatically run on core 1
-	ws.cleanupClients();// This will be run occasionally to clean up the web socket clients
-	#if SERIAL_ENABLED
-		Serial.printf("Send Data to UI Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(sendDataToUITask));
-		Serial.printf("Main Control Loop Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(mainControlLoopTask));
-		Serial.printf("Read Battery Voltages Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(readBatteryVoltagesTask));
-		Serial.printf("Free Heap: %u\n", ESP.getFreeHeap());
+	#if (NO_WIRELESS)
+		mainControlLoop(NULL);
 	#else
-		ws.printfAll("{\"message\": \"Send Data to UI Task High Water Mark: %u\\nMain Control Loop Task High Water Mark: %u\\nRead Battery Voltages Task High Water Mark: %u\\nFree Heap: %u\\n\"}", uxTaskGetStackHighWaterMark(sendDataToUITask), uxTaskGetStackHighWaterMark(mainControlLoopTask), uxTaskGetStackHighWaterMark(readBatteryVoltagesTask), ESP.getFreeHeap());
-	#endif
+		ws.cleanupClients();// This will be run occasionally to clean up the web socket clients
+		// #if SERIAL_ENABLED
+		// 	Serial.printf("Send Data to UI Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(sendDataToUITask));
+		// 	Serial.printf("Main Control Loop Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(mainControlLoopTask));
+		// 	Serial.printf("Read Battery Voltages Task High Water Mark: %u\n", uxTaskGetStackHighWaterMark(readBatteryVoltagesTask));
+		// 	Serial.printf("Free Heap: %u\n", ESP.getFreeHeap());
+		// #else
+		// 	ws.printfAll("{\"message\": \"Send Data to UI Task High Water Mark: %u\\nMain Control Loop Task High Water Mark: %u\\nRead Battery Voltages Task High Water Mark: %u\\nFree Heap: %u\\n\"}", uxTaskGetStackHighWaterMark(sendDataToUITask), uxTaskGetStackHighWaterMark(mainControlLoopTask), uxTaskGetStackHighWaterMark(readBatteryVoltagesTask), ESP.getFreeHeap());
+		// #endif
 	vTaskDelay(wsClientCleanupInterval);// Delay for 15 seconds
+	#endif
 }
 
 
