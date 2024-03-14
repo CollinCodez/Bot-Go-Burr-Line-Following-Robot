@@ -108,13 +108,16 @@ const float fanBatMinVoltage = 6.8;// min voltage for a 2S LiPo Battery
 QTRSensors qtr;
 uint16_t sensorValues[sensorCount];
 uint16_t sensorLinePosition;
+uint16_t checkedSensorLinePosition;
+const QTRReadMode sensorReadMode = QTRReadMode::OddEven;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
+const uint16_t sensorCheckThreshold = 5000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
 
 
 // Motor PWM Properties
 const uint16_t motorPWMFreq = 5000;// Max frequency of Motor Driver is 100 kHz, so using 5 kHz for now. This will also work with up to a max resolution of 13 bits
 const uint8_t motorPWMResolution = 10;// 10 bit resolution for PWM. We may want to try a higher resolution at some point
 const uint16_t motorAbsMaxSpeed = (1 << (motorPWMResolution)) - 1;// Absolute maximum speed of the motor. 1023 for 10 bit PWM, 4095 for 12 bit PWM. This is the maximum value that can be sent to the motor driver
-uint16_t motorMaxSpeed = (1 << (motorPWMResolution-4)) - 1;// Limited maximum PWM speed for the motors. This can be changed from the web UI.
+uint16_t motorMaxSpeed = 700;// Limited maximum PWM speed for the motors. This can be changed from the web UI.
 uint16_t newMotorMaxSpeed = motorMaxSpeed;// New maximum speed for the motors, when we want to change it
 bool updateMotorMaxSpeed = false;// = 1 if we want to update the maximum speed of the motors
 const uint8_t leftMotorPWMChannel = 0;
@@ -124,9 +127,9 @@ const uint8_t rightMotorPWMChannel = 1;
 // PID Variables
 const uint16_t setpoint = 7000;// Output Value if the line is under the middle sensor
 
-const float defaultKp = .2;							// Default Proportional constant
+const float defaultKp = 0.9;							// Default Proportional constant
 const float defaultKi = 0.;								// Default Integral constant
-const float defaultKd = 0.;								// Default Derivative constant
+const float defaultKd = 0.43;								// Default Derivative constant
 
 float Kp = defaultKp;										// Proportional constant
 float Ki = defaultKi;										// Integral constant
@@ -247,7 +250,7 @@ void calibrateSensor(){
 	// Call calibrate() 400 times to make calibration take about 10 seconds.
 	for (uint16_t i = 0; i < 400; i++)
 	{
-		qtr.calibrate();
+		qtr.calibrate(sensorReadMode);
 	}
 
 	// Inform Web UI that calibration is complete
@@ -349,7 +352,7 @@ void selectCommand(char* msg){
 	}else if (strcmp(cmd, "readSensor") == 0) {
 		// Read the sensor values and send them to the web UI
 		// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
-		messageJSON["sensorLinePosition"] = qtr.readLineBlack(sensorValues);// Read the sensor values and add them to the JSON object
+		messageJSON["sensorLinePosition"] = qtr.readLineBlack(sensorValues, sensorReadMode);// Read the sensor values and add them to the JSON object
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "cleariError") == 0) {
 		iError = 0.;// Clear the integral error
@@ -587,21 +590,22 @@ void calculatePID(){
 		updateConstants = false;
 	}
 
-	error = setpoint - sensorLinePosition; 
+	error = setpoint - checkedSensorLinePosition; 
 
 	signsEqual = !(((*(uint32_t *) &error) ^ (*(uint32_t *) &output2)) & 0x80000000);	// 1 if error and output2 have the same sign
 	iClamp = signsEqual && saturated;													// 1 if the output is saturated AND error and output2 have the same sign
 	iError = iError + (error*runControllerTimeSecs) * !iClamp;	// Integral of error
 	
 	// Calculate Derivative of error
-	dError = (error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs); // Derivative of error using 2nd last point
-	dError += (error - readPointInBuffer(&errorBuffer, 3))/(4.*runControllerTimeSecs); // Derivative of error using 4th last point
-	dError += (error - readPointInBuffer(&errorBuffer, 7))/(8.*runControllerTimeSecs); // Derivative of error using 8th last point
-	dError += (error - readPointInBuffer(&errorBuffer, 15))/(16.*runControllerTimeSecs); // Derivative of error using 16th last point
-	dError += (error - readPointInBuffer(&errorBuffer, 31))/(32.*runControllerTimeSecs); // Derivative of error using 32nd last point
-	dError += (error - readPointInBuffer(&errorBuffer, 63))/(64.*runControllerTimeSecs); // Derivative of error using 64th last point
+	// dError = 3.*((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
+	dError = ((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
+	// dError += (error - readPointInBuffer(&errorBuffer, 3))/(4.*runControllerTimeSecs); // Derivative of error using 4th last point
+	// dError += (error - readPointInBuffer(&errorBuffer, 7))/(8.*runControllerTimeSecs); // Derivative of error using 8th last point
+	// dError += (error - readPointInBuffer(&errorBuffer, 15))/(16.*runControllerTimeSecs); // Derivative of error using 16th last point
+	// dError += (error - readPointInBuffer(&errorBuffer, 31))/(32.*runControllerTimeSecs); // Derivative of error using 32nd last point
+	// dError += (error - readPointInBuffer(&errorBuffer, 63))/(64.*runControllerTimeSecs); // Derivative of error using 64th last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 127))/(128.*runControllerTimeSecs); // Derivative of error using 128th last point
-	dError = dError/6.; // Average the derivative of error, with all points weighted equally
+	dError = dError/1.; // Average the derivative of error, with all points weighted equally
 	addPointToBuffer(&errorBuffer, error);
 
 	output2 = Kp*error + Ki*iError + Kd*dError + 0.5; // Output value
@@ -745,7 +749,13 @@ void mainControlLoop(void *pvParameters){
 				if(currentMillis - lastReadSensorsTime >= readSensorsTime){
 					lastReadSensorsTime = currentMillis;
 					// Read Sensor Values
-					sensorLinePosition = qtr.readLineBlack(sensorValues);
+					sensorLinePosition = qtr.readLineBlack(sensorValues, sensorReadMode);
+					if((sensorLinePosition == 0 && checkedSensorLinePosition >= (14000 - sensorCheckThreshold)) || (sensorLinePosition == 14000 && checkedSensorLinePosition <= sensorCheckThreshold)){
+						// If the sensor values went from one extreme to the other, then the line is probably lost, so we should hold the last known position
+						// checkedSensorLinePosition = checkedSensorLinePosition;
+					}else{
+						checkedSensorLinePosition = sensorLinePosition;
+					}
 					readSensorsTimeTaken = millis() - lastReadSensorsTime;// Log the time taken to read the sensors
 				}
 
@@ -766,20 +776,20 @@ void mainControlLoop(void *pvParameters){
 				}
 
 				// Send Data to UI
-				currentMillis = millis();
-				if(currentMillis - lastLogDataTime >= logDataTime){
-					lastLogDataTime = currentMillis;
-					// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
-					// messageJSON["sensorLinePosition"] = sensorLinePosition;
-					if(logRunTimes){// If we want to log the run times of the main control loop
-						// Add the run times to the JSON object (in milliseconds
-						JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
-						runTimes["sensorReadTime"] = readSensorsTimeTaken;
-						runTimes["calcPIDTime"] = runControllerTimeTaken;
-						runTimes["updateOutputTime"] = updateOutputTimeTaken;
-						xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
-					}
-				}
+				// currentMillis = millis();
+				// if(currentMillis - lastLogDataTime >= logDataTime){
+				// 	lastLogDataTime = currentMillis;
+				// 	// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+				// 	messageJSON["sensorLinePosition"] = sensorLinePosition;
+				// 	if(logRunTimes){// If we want to log the run times of the main control loop
+				// 		// Add the run times to the JSON object (in milliseconds
+				// 		JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
+				// 		runTimes["sensorReadTime"] = readSensorsTimeTaken;
+				// 		runTimes["calcPIDTime"] = runControllerTimeTaken;
+				// 		runTimes["updateOutputTime"] = updateOutputTimeTaken;
+				// 	}
+				// 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+				// }
 
 				tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set, no wait time
 			}// End of the loop for while the bot is running. Exit if the STOP_BOT bit is set
