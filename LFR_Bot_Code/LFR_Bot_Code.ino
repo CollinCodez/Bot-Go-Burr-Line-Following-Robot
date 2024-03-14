@@ -93,15 +93,15 @@ Preferences preferences;
 
 
 // Battery Voltage Variables
-const uint16_t mainBatHighResistor = 10000;// 10k Ohm Resistor
-const uint16_t mainBatLowResistor = 1000;// 1k Ohm Resistor
-const uint8_t mainBatMaxVoltage = 12.6;// max voltage for a 3S LiPo Battery
-const uint8_t mainBatMinVoltage = 10.2;// min voltage for a 3S LiPo Battery
+const float mainBatHighResistor = 49790.;// 50K Ohm Resistor
+const float mainBatLowResistor = 10035.;// 10K Ohm Resistor
+const float mainBatMaxVoltage = 12.6;// max voltage for a 3S LiPo Battery
+const float mainBatMinVoltage = 10.2;// min voltage for a 3S LiPo Battery
 
-const uint16_t fanBatHighResistor = 10000;// 10k Ohm Resistor
-const uint16_t fanBatLowResistor = 1000;// 1k Ohm Resistor
-const uint8_t fanBatMaxVoltage = 8.4;// max voltage for a 2S LiPo Battery
-const uint8_t fanBatMinVoltage = 6.8;// min voltage for a 2S LiPo Battery
+const float fanBatHighResistor = 29815.;// 30k Ohm Resistor
+const float fanBatLowResistor = 9961.6;// 10k Ohm Resistor
+const float fanBatMaxVoltage = 8.4;// max voltage for a 2S LiPo Battery
+const float fanBatMinVoltage = 6.8;// min voltage for a 2S LiPo Battery
 
 
 // Line Sensor Variables
