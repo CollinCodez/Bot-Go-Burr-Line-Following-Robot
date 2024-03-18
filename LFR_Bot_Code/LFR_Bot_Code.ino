@@ -568,13 +568,13 @@ void getPIDConstants(){
 void readBatteryVoltages(){
 	// Read Voltage of the Main Battery
 	float readVoltage = (analogRead(mainBatPin) / 4095.) * 3.3;// calculate the voltage from the ADC reading
-	float mainBatVoltage = readVoltage * (mainBatHighResistor / mainBatLowResistor);// calculate the actual voltage from the voltage divider
+	float mainBatVoltage = readVoltage * ((mainBatHighResistor + mainBatLowResistor) / mainBatLowResistor);// calculate the actual voltage from the voltage divider
 	
 	// Read Voltage of the Fan Battery
 	readVoltage = (analogRead(fanBatPin) / 4095.) * 3.3;// calculate the voltage from the ADC reading
-	float fanBatVoltage = readVoltage * (fanBatHighResistor / fanBatLowResistor);// calculate the actual voltage from the voltage divider
+	float fanBatVoltage = readVoltage * ((fanBatHighResistor + fanBatLowResistor) / fanBatLowResistor);// calculate the actual voltage from the voltage divider
 
-	while(sendingJSON);// Wait for the JSON object to be free
+	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free
 
 	// Add Battery Voltages to JSON object
 	messageJSON["mainBatVoltage"] = mainBatVoltage;
