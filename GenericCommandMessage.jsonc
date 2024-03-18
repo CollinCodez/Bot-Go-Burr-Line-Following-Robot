@@ -19,6 +19,7 @@
 		"getState"
 	],
 	"Kp": 0.0,
+	"Kp2": 0.0,
 	"Ki": 0.0,
 	"Kd": 0.0,
 	"newMotorMaxSpeed": 1023

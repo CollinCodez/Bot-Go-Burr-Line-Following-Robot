@@ -9,7 +9,7 @@
 //=======================================================
 
 // var botPath = `ws://${window.location.hostname}/ws`;
-var botPath = `ws://192.168.1.4:80/ws`;
+var botPath = `ws://192.168.1.5:80/ws`;
 var websocket;
 
 window.addEventListener('load', onload);// Initialize the websocket when the page is loaded
@@ -78,12 +78,13 @@ function getPID() {
 
 
 // Function to send new PID values
-function updatePID(newKp, newKi, newKd) {
-	console.log('Sending the updatePID command, with new PID values: ' + newKp + ', ' + newKi + ', ' + newKd);
+function updatePID(newKp,newKp2, newKi, newKd) {
+	console.log('Sending the updatePID command, with new PID values: ' + newKp + ', ' + newKp2 + ', ' + newKi + ', ' + newKd);
 	websocket.send(
 		JSON.stringify({
 			cmd: 'updatePID',
 			Kp: newKp,
+			Kp2: newKp2,
 			Ki: newKi,
 			Kd: newKd
 		})
@@ -96,15 +97,22 @@ function updatePID(newKp, newKi, newKd) {
 // Sumbit the form to update the PID values. If a value is empty, use the current value
 function submitForm() {
 	const kpInput = document.getElementById('newTmpKP').value;
+	const kp2Input = document.getElementById('newTmpKP2').value;
 	const kiInput = document.getElementById('newTmpKI').value;
 	const kdInput = document.getElementById('newTmpKD').value;
 	var newKp;
+	var newKp2
 	var newKi;
 	var newKd;
 	if (kpInput == '') {
 		newKp = document.getElementById('kp').innerHTML.value;
 	}else{
 		newKp = kpInput;
+	}
+	if (kp2Input == '') {
+		newKp2 = document.getElementById('kp2').innerHTML.value;
+	}else{
+		newKp2 = kp2Input;
 	}
 	if (kiInput == '') {
 		newKi = document.getElementById('ki').innerHTML.value;
@@ -116,7 +124,7 @@ function submitForm() {
 	}else{
 		newKd = kdInput;
 	}
-	updatePID(newKp, newKi, newKd);
+	updatePID(newKp,newKp2, newKi, newKd);
 }
 
 

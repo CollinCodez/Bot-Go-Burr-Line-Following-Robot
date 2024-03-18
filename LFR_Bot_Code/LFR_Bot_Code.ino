@@ -41,7 +41,7 @@ const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 const uint8_t sensorPins[] = {18, 1, 5, 3, 17, 32, 16, 27, 4, 14, 0, 12, 2, 13, 15};
 const uint8_t sensorCount = 15; // This is NOT a pin.
 
-const gpio_num_t sensorEmitterPinOdd = GPIO_NUM_19;// We may want to split this to two pins at some point, depending on performance
+const gpio_num_t sensorEmitterPinOdd = GPIO_NUM_19;
 const gpio_num_t sensorEmitterPinEven = GPIO_NUM_33;
 
 
@@ -111,7 +111,7 @@ uint16_t sensorValues[sensorCount];
 uint16_t sensorLinePosition;
 uint16_t checkedSensorLinePosition;
 const QTRReadMode sensorReadMode = QTRReadMode::OddEven;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
-const uint16_t sensorCheckThreshold = 5000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
+const uint16_t sensorCheckThreshold = 6000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
 
 
 // Motor PWM Properties
@@ -129,14 +129,17 @@ const uint8_t rightMotorPWMChannel = 1;
 const uint16_t setpoint = 7000;// Output Value if the line is under the middle sensor
 
 const float defaultKp = 0.9;							// Default Proportional constant
-const float defaultKi = 0.;								// Default Integral constant
+const float defaultKp2 = 0.0;							// Default Proportional^2 constant
+const float defaultKi = 0.0;								// Default Integral constant
 const float defaultKd = 0.43;								// Default Derivative constant
 
 float Kp = defaultKp;										// Proportional constant
+float Kp2 = defaultKp2;										// Proportional^2 constant
 float Ki = defaultKi;										// Integral constant
 float Kd = defaultKd;										// Derivative constant
 
 float newKp = Kp;									// New Proportional constant, when we want to change it
+float newKp2 = Kp2;									// New Proportional^2 constant, when we want to change it
 float newKi = Ki;									// New Integral constant, when we want to change it
 float newKd = Kd;									// New Derivative constant, when we want to change it
 
@@ -155,6 +158,8 @@ float output2 = 0.;											// Temporary value
 int32_t output = 0;											// Output to the motors
 float error;												// Setpoint minus measured value
 
+float errorSign;											// Sign of the error
+
 
 struct ringBuffer errorBuffer = {0};						// Ring Buffer to store error values
 
@@ -162,6 +167,7 @@ struct ringBuffer errorBuffer = {0};						// Ring Buffer to store error values
 // Web UI Data
 JsonDocument messageJSON;			// JSON Object to store data to send to the web UI
 bool sendingJSON = false;			// Variable to keep track of if we are currently sending data to the web UI
+bool mainTaskEditingJSON = false;	// Variable to keep track of if the main control loop task is currently editing the JSON object
 
 
 // Main Control Loop Wait times
@@ -187,10 +193,10 @@ bool logRunTimes = false;// = 1 if we want to log the run times of the main cont
 
 
 // Task Delays
-const TickType_t batCheckDelay = 30000 / portTICK_PERIOD_MS; // Value in ms
+const TickType_t batCheckDelay = 15000 / portTICK_PERIOD_MS; // Value in ms
 // const TickType_t controlLoopInterval = 10 / portTICK_PERIOD_MS; // Value in ms
 const TickType_t wsClientCleanupInterval = 15000 / portTICK_PERIOD_MS; // Value in ms
-const TickType_t uiDataSendInterval = 30000 / portTICK_PERIOD_MS; // Value in ms
+const TickType_t uiDataSendInterval = 45000 / portTICK_PERIOD_MS; // Value in ms
 
 
 // Handles for Tasks to run on various cores with different priorities
@@ -238,15 +244,16 @@ void initWiFi(){
 
 // Function to Calibrate the line following sensor
 void calibrateSensor(){
-	// This code comes directly from the QTR Sensors library example
-	// Ideally, I would like to add a way to display if the sensor is calibrating on the web interface
+	// This code comes directly from the QTR Sensors library example, with the addition of the logging, sensorReadMode, and resetting the calibration.
 
 	// Inform the Web UI that calibration is starting
 	#if (!NO_WIRELESS)
-	while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = true;
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
+
+	qtr.resetCalibration(); // Reset the calibration, so we can start fresh each time the button is pressed.
 
 	// 2.5 ms RC read timeout (default) * 10 reads per calibrate() call
 	// = ~25 ms per calibrate() call.
@@ -258,7 +265,7 @@ void calibrateSensor(){
 
 	#if (!NO_WIRELESS)
 	// Inform Web UI that calibration is complete
-	while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = false;
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
@@ -340,6 +347,7 @@ void selectCommand(char* msg){
 			xEventGroupSetBits(mainEventGroup, STOP_EDF);// Set the STOP_EDF bit
 	}else if (strcmp(cmd, "updatePID") == 0) {
 		newKp = doc["Kp"];
+		newKp2 = doc["Kp2"];
 		newKi = doc["Ki"];
 		newKd = doc["Kd"];
 		updateConstants = true;// Tell the PID control function to update the constants on its next run
@@ -351,30 +359,33 @@ void selectCommand(char* msg){
 		// Save the PID constants to the flash memory
 		preferences.begin("PID", false);// Open the preferences object with the namespace "PID" and read/write access
 		preferences.putFloat("Kp", Kp);// Save the Kp constant to the flash memory
+		preferences.putFloat("Kp2", Kp2);// Save the Kp2 constant to the flash memory
 		preferences.putFloat("Ki", Ki);// Save the Ki constant to the flash memory
 		preferences.putFloat("Kd", Kd);// Save the Kd constant to the flash memory
 		preferences.end();// Close the preferences object
 	}else if (strcmp(cmd, "readSensor") == 0) {
 		// Read the sensor values and send them to the web UI
-		// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 		messageJSON["sensorLinePosition"] = qtr.readLineBlack(sensorValues, sensorReadMode);// Read the sensor values and add them to the JSON object
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "cleariError") == 0) {
 		iError = 0.;// Clear the integral error
 	}else if (strcmp(cmd, "runTimeLogOn") == 0) {
-		logRunTimes = true;// Enable logging of the run times of the main control loop
-		messageJSON["logRunTimes"] = logRunTimes;// Add the logRunTimes value to the JSON object
-		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		logRunTimes = true;								// Enable logging of the run times of the main control loop
+		while(sendingJSON || mainTaskEditingJSON);								// Wait for the JSON object to be free (not being sent to the web UI
+		messageJSON["logRunTimes"] = logRunTimes;		// Add the logRunTimes value to the JSON object
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);	// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "runTimeLogOff") == 0) {
-		logRunTimes = false;// Disable logging of the run times of the main control loop
-		messageJSON["logRunTimes"] = logRunTimes;// Add the logRunTimes value to the JSON object
-		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		logRunTimes = false;							// Disable logging of the run times of the main control loop
+		while(sendingJSON || mainTaskEditingJSON);								// Wait for the JSON object to be free (not being sent to the web UI
+		messageJSON["logRunTimes"] = logRunTimes;		// Add the logRunTimes value to the JSON object
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);	// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "updateMotorMaxSpeed") == 0) {
 		newMotorMaxSpeed = doc["newMotorMaxSpeed"];
 		updateMotorMaxSpeed = true;// Tell the motor control function to update the maximum speed on its next run
 	}else if (strcmp(cmd, "getMotorMaxSpeed") == 0) {
 		// Send the current maximum motor speed to the web UI
-		// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		// while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 		getMotorMaxSpeed();
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "getState") == 0) {
@@ -394,7 +405,7 @@ void selectCommand(char* msg){
 
 
 
-// AwsEventHandler Function
+// AwsEventHandler Function. This largely comes from the ESPAsyncWebServer Documentation example.
 void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
 	if(type == WS_EVT_CONNECT){
 		//client connected
@@ -542,10 +553,11 @@ void addPointToBuffer(ringBuffer *buffer, float value){
 
 // Get the current PID constants for Web UI
 void getPIDConstants(){
-	// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 
 	JsonObject consts = messageJSON["consts"].to<JsonObject>();
 	consts["kp"] = Kp;
+	consts["kp2"] = Kp2;
 	consts["ki"] = Ki;
 	consts["kd"] = Kd;
 }
@@ -573,10 +585,11 @@ void readBatteryVoltages(){
 
 // Get the motor maximum speed for the Web UI
 void getMotorMaxSpeed(){
-	// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["motorMaxSpeed"] = motorMaxSpeed;
 	messageJSON["motorAbsMaxSpeed"] = motorAbsMaxSpeed;
 }
+
 
 
 
@@ -590,6 +603,7 @@ void getMotorMaxSpeed(){
 void calculatePID(){
 	if(updateConstants){// If new constant values were received
 		Kp = newKp;
+		Kp2 = newKp2;
 		Ki = newKi;
 		Kd = newKd;
 		updateConstants = false;
@@ -597,25 +611,35 @@ void calculatePID(){
 
 	error = setpoint - checkedSensorLinePosition; 
 
+	if(error < 0){
+		errorSign = -1;
+	}
+	else{
+		errorSign = 1;
+	}
+
 	signsEqual = !(((*(uint32_t *) &error) ^ (*(uint32_t *) &output2)) & 0x80000000);	// 1 if error and output2 have the same sign
 	iClamp = signsEqual && saturated;													// 1 if the output is saturated AND error and output2 have the same sign
 	iError = iError + (error*runControllerTimeSecs) * !iClamp;	// Integral of error
 	
 	// Calculate Derivative of error
+	// dError = (error - lastError)/(1.*runControllerTime/1000.); // Derivative of error
+	// dError = (error - lastError2)/(2.*runControllerTime/1000.); // Derivative of error
 	// dError = 3.*((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
-	dError = ((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
+	// dError = ((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
+	dError = 0.01 * ((error - readPointInBuffer(&errorBuffer, 0))/(1.*runControllerTimeSecs)); // Derivative of error using last point
+	dError += 1.99 * ((error - readPointInBuffer(&errorBuffer, 1))/(2.*runControllerTimeSecs)); // Derivative of error using 2nd last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 3))/(4.*runControllerTimeSecs); // Derivative of error using 4th last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 7))/(8.*runControllerTimeSecs); // Derivative of error using 8th last point
-	// dError += (error - readPointInBuffer(&errorBuffer, 15))/(16.*runControllerTimeSecs); // Derivative of error using 16th last point
+	// dError += (error - re`adPointInBuffer(&errorBuffer, 15))/(16.*runControllerTimeSecs); // Derivative of error using 16th last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 31))/(32.*runControllerTimeSecs); // Derivative of error using 32nd last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 63))/(64.*runControllerTimeSecs); // Derivative of error using 64th last point
 	// dError += (error - readPointInBuffer(&errorBuffer, 127))/(128.*runControllerTimeSecs); // Derivative of error using 128th last point
-	dError = dError/1.; // Average the derivative of error, with all points weighted equally
+	dError = dError/2.; // Average the derivative of error, with all points weighted equally
 	addPointToBuffer(&errorBuffer, error);
 
-	output2 = Kp*error + Ki*iError + Kd*dError + 0.5; // Output value
-	// output2 = Kp*error*error + Ki*iError + Kd*dError + 0.5; // Output value - TODO - Ensure signange of proportional term is maintained when squaring it.
-	output = output2;
+	output2 = Kp*error + Kp2*error*error*errorSign + Ki*iError + Kd*dError + 0.5; // Output value
+	output = output2;	// Saving the Float output value to an Integer, to be used in the motor control function
 
 	// Check if Output is Saturated
 	if(output >= motorMaxSpeed) // If output is saturated Positive (left)
@@ -703,6 +727,7 @@ void sendDataToUI(void *pvParameters){
 			#if SERIAL_ENABLED
 				Serial.println("sendDataToUI Task: Sending Data to Web UI Triggered\n");
 			#endif
+			while(mainTaskEditingJSON);// Wait for the JSON object to be free (not being modified by the main control loop)
 			sendingJSON = true;// Set sendingJSON to true to prevent other tasks from modifying the JSON object
 
 			String tmp;
@@ -738,7 +763,7 @@ void mainControlLoop(void *pvParameters){
 				Serial.println("Starting Bot\n");
 			#endif
 			// Inform the Web UI that the bot is starting
-			while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+			while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 			messageJSON["botRunning"] = true;
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 
@@ -783,20 +808,22 @@ void mainControlLoop(void *pvParameters){
 				}
 
 				// Send Data to UI
-				// currentMillis = millis();
-				// if(currentMillis - lastLogDataTime >= logDataTime){
-				// 	lastLogDataTime = currentMillis;
-				// 	// while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
-				// 	messageJSON["sensorLinePosition"] = sensorLinePosition;
-				// 	if(logRunTimes){// If we want to log the run times of the main control loop
-				// 		// Add the run times to the JSON object (in milliseconds
-				// 		JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
-				// 		runTimes["sensorReadTime"] = readSensorsTimeTaken;
-				// 		runTimes["calcPIDTime"] = runControllerTimeTaken;
-				// 		runTimes["updateOutputTime"] = updateOutputTimeTaken;
-				// 	}
-				// 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
-				// }
+				currentMillis = millis();
+				if(currentMillis - lastLogDataTime >= logDataTime){
+					lastLogDataTime = currentMillis;
+					mainTaskEditingJSON = true;// Set mainTaskEditingJSON to true to prevent other tasks from modifying the JSON object
+					// while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+					// messageJSON["sensorLinePosition"] = sensorLinePosition;
+					if(logRunTimes){// If we want to log the run times of the main control loop
+						// Add the run times to the JSON object (in milliseconds)
+						JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
+						runTimes["sensorReadTime"] = readSensorsTimeTaken;
+						runTimes["calcPIDTime"] = runControllerTimeTaken;
+						runTimes["updateOutputTime"] = updateOutputTimeTaken;
+						mainTaskEditingJSON = false;// Set mainTaskEditingJSON to false to allow other tasks to modify the JSON object
+						xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+					}
+				}
 
 	#if (!NO_WIRELESS)
 				tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set, no wait time
@@ -806,7 +833,7 @@ void mainControlLoop(void *pvParameters){
 			digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver
 
 			// Inform the Web UI that the bot has stopped
-			while(sendingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+			while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 			messageJSON["botRunning"] = false;
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 		}// End of the Start Bot Command
@@ -842,19 +869,23 @@ void setup(){// this will automaticlally run on core 1
 	// Set up the PID constants
 	preferences.begin("PID", false);// Open the preferences object for the PID constants
 	Kp = preferences.getFloat("Kp", defaultKp);
+	Kp2 = preferences.getFloat("Kp2", defaultKp2);
 	Ki = preferences.getFloat("Ki", defaultKi);
 	Kd = preferences.getFloat("Kd", defaultKd);
 	preferences.end();// Close the preferences object
 
-	if(Kp != defaultKp || Ki != defaultKi || Kd != defaultKd){// If the PID constants were found in the flash memory
+	#if (!NO_WIRELESS)
+		if(Kp != defaultKp || Kp2 != defaultKp2 || Ki != defaultKi || Kd != defaultKd){// If the PID constants were found in the flash memory
 		// Send the PID constants to the web UI
 		JsonObject consts = messageJSON["consts"].to<JsonObject>();
 		consts["kp"] = Kp;
+			consts["kp2"] = Kp2;
 		consts["ki"] = Ki;
 		consts["kd"] = Kd;
 		messageJSON["message"] = "PID Constants Loaded from Flash Memory";
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}
+	#endif
 	
 	// Set up the motor pins
 	setupMotors();
@@ -887,7 +918,7 @@ void setup(){// this will automaticlally run on core 1
 		"Send Data to Server",	// Task Name
 		10000,					// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
 		NULL,					// Parameters
-		4,						// Priority 4, so it is higher priority than the task for received messages. This is required to prevent the two from getting locked up
+			3,						// Priority 3, so it is at the same priority as the recieving data task. This is to help prevent the two from getting locked up
 		&sendDataToUITask,		// Task Handle
 		1						// Core 1
 	);
@@ -902,6 +933,7 @@ void setup(){// this will automaticlally run on core 1
 		&mainControlLoopTask,// Task Handle
 		0					// Core 0. This task should get this core to itself
 	);
+	#endif // !NO_WIRELESS
 	#endif
 
 	#if NO_WIRELESS
