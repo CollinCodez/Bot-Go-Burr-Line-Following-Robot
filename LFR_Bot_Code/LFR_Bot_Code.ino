@@ -84,9 +84,6 @@ struct ringBuffer{
 //	Global Variables & Defines
 //======================================================================================================
 
-#define SERIAL_ENABLED 0
-#define NO_WIRELESS 0
-
 // WiFi Credentials
 // #define WIFI_SSID "COLLIN-LAPTOP"
 // #define WIFI_PASSWORD "blinkyblinky"
@@ -180,8 +177,7 @@ struct ringBuffer errorBuffer = {0};						// Ring Buffer to store error values
 
 // Web UI Data
 JsonDocument messageJSON;			// JSON Object to store data to send to the web UI
-bool sendingJSON = false;			// Variable to keep track of if we are currently sending data to the web UI
-bool mainTaskEditingJSON = false;	// Variable to keep track of if the main control loop task is currently editing the JSON object
+SemaphoreHandle_t jsonSemaphore;	// Semaphore to control access to the JSON object
 
 
 // Main Control Loop Wait times
@@ -309,8 +305,9 @@ void calibrateSensor(){
 
 	// Inform the Web UI that calibration is starting
 	#if (!NO_WIRELESS)
-		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = true;
+		xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
 
@@ -326,8 +323,9 @@ void calibrateSensor(){
 
 	#if (!NO_WIRELESS)
 	// Inform Web UI that calibration is complete
-		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		xSemaphoreTake(jsonSemaphore,portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["calibrating"] = false;
+		xSemaphoreGive(jsonSemaphore);// Give the JSON object back
 	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
 }
@@ -458,27 +456,29 @@ void selectCommand(char* msg){
 		preferences.end();// Close the preferences object
 	}else if (strcmp(cmd, "readSensor") == 0) {
 		// Read the sensor values and send them to the web UI
-		while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 		messageJSON["sensorLinePosition"] = qtr.readLineBlack(sensorValues, sensorReadMode);// Read the sensor values and add them to the JSON object
+		xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "cleariError") == 0) {
 		iError = 0.;// Clear the integral error
 	}else if (strcmp(cmd, "runTimeLogOn") == 0) {
 		logRunTimes = true;								// Enable logging of the run times of the main control loop
-		while(sendingJSON || mainTaskEditingJSON);								// Wait for the JSON object to be free (not being sent to the web UI
+		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);	// Wait for the JSON object to be free (not being sent to the web UI
 		messageJSON["logRunTimes"] = logRunTimes;		// Add the logRunTimes value to the JSON object
+		xSemaphoreGive(jsonSemaphore);					// Give the JSON object back to the main control loop
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);	// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "runTimeLogOff") == 0) {
 		logRunTimes = false;							// Disable logging of the run times of the main control loop
-		while(sendingJSON || mainTaskEditingJSON);								// Wait for the JSON object to be free (not being sent to the web UI
+		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);	// Wait for the JSON object to be free (not being sent to the web UI
 		messageJSON["logRunTimes"] = logRunTimes;		// Add the logRunTimes value to the JSON object
+		xSemaphoreGive(jsonSemaphore);					// Give the JSON object back to the main control loop
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);	// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "updateMotorMaxSpeed") == 0) {
 		newMotorMaxSpeed = doc["newMotorMaxSpeed"];
 		updateMotorMaxSpeed = true;// Tell the motor control function to update the maximum speed on its next run
 	}else if (strcmp(cmd, "getMotorMaxSpeed") == 0) {
 		// Send the current maximum motor speed to the web UI
-		// while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 		getMotorMaxSpeed();
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "getState") == 0) {
@@ -649,13 +649,15 @@ void addPointToBuffer(ringBuffer *buffer, float value){
 
 // Get the current PID constants for Web UI
 void getPIDConstants(){
-	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+	xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 
 	JsonObject consts = messageJSON["consts"].to<JsonObject>();
 	consts["kp"] = Kp;
 	consts["kp2"] = Kp2;
 	consts["ki"] = Ki;
 	consts["kd"] = Kd;
+	
+	xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 }
 
 
@@ -670,20 +672,22 @@ void readBatteryVoltages(){
 	readVoltage = (analogRead(fanBatPin) / 4095.) * 3.3;// calculate the voltage from the ADC reading
 	float fanBatVoltage = readVoltage * ((fanBatHighResistor + fanBatLowResistor) / fanBatLowResistor);// calculate the actual voltage from the voltage divider
 
-	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free
-
+	xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free
 	// Add Battery Voltages to JSON object
 	messageJSON["mainBatVoltage"] = mainBatVoltage;
 	messageJSON["fanBatVoltage"] = fanBatVoltage;
+	xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 }
 
 
 
 // Get the motor maximum speed for the Web UI
 void getMotorMaxSpeed(){
-	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+	xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["motorMaxSpeed"] = motorMaxSpeed;
 	messageJSON["motorAbsMaxSpeed"] = motorAbsMaxSpeed;
+	xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
+}
 
 
 
@@ -889,13 +893,14 @@ void sendDataToUI(void *pvParameters){
 			#if SERIAL_ENABLED
 				Serial.println("sendDataToUI Task: Sending Data to Web UI Triggered\n");
 			#endif
-			while(mainTaskEditingJSON);// Wait for the JSON object to be free (not being modified by the main control loop)
-			sendingJSON = true;// Set sendingJSON to true to prevent other tasks from modifying the JSON object
+
+			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI
 
 			String tmp;
 			serializeJson(messageJSON, tmp);
 			messageJSON.clear();// Clears the data that was stored in messageJSON, so it will be empty for the next time we want to send data
-			sendingJSON = false;// Set sendingJSON to false to allow other tasks to modify the JSON object
+			xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
+
 			notifyClients(tmp);// Send the JSON data to the web UI
 		}
 	}
@@ -925,8 +930,9 @@ void mainControlLoop(void *pvParameters){
 				Serial.println("Starting Bot\n");
 			#endif
 			// Inform the Web UI that the bot is starting
-			while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 			messageJSON["botRunning"] = true;
+			xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 
 			digitalWrite(motorStandbyPin, HIGH);// Set Motor Standby Pin to High to Enable the motor driver
@@ -973,16 +979,17 @@ void mainControlLoop(void *pvParameters){
 				currentMillis = millis();
 				if(currentMillis - lastLogDataTime >= logDataTime){
 					lastLogDataTime = currentMillis;
-					mainTaskEditingJSON = true;// Set mainTaskEditingJSON to true to prevent other tasks from modifying the JSON object
-					// while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
-					// messageJSON["sensorLinePosition"] = sensorLinePosition;
+					BaseType_t status = xSemaphoreTake(jsonSemaphore, pdMS_TO_TICKS(readSensorsTime/4));// Wait for the JSON object to be free (not being sent to the web UI)
+					if(status == pdTRUE){// If the JSON object was successfully taken
+						// Add the sensor line position to the JSON object
 					if(logRunTimes){// If we want to log the run times of the main control loop
 						// Add the run times to the JSON object (in milliseconds)
 						JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
 						runTimes["sensorReadTime"] = readSensorsTimeTaken;
 						runTimes["calcPIDTime"] = runControllerTimeTaken;
 						runTimes["updateOutputTime"] = updateOutputTimeTaken;
-						mainTaskEditingJSON = false;// Set mainTaskEditingJSON to false to allow other tasks to modify the JSON object
+						}
+						xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 						xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 					}
 				}
@@ -995,9 +1002,10 @@ void mainControlLoop(void *pvParameters){
 			digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver
 
 			// Inform the Web UI that the bot has stopped
-			while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
+			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);	// Wait for the JSON object to be free (not being sent to the web UI)
 			messageJSON["botRunning"] = false;
-			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+			xSemaphoreGive(jsonSemaphore);					// Give the JSON object back
+			xEventGroupSetBits(mainEventGroup, SEND_DATA);	// Set the SEND_DATA bit to send data to the web UI
 		}// End of the Start Bot Command
 	}// End of the main control loop infinite loop
 	#endif
@@ -1101,6 +1109,11 @@ void setup(){// this will automaticlally run on core 1
 	#endif
 	#if (!NO_WIRELESS)
 		initWiFi();// Initialize the WiFi connection, if the NO_WIRELESS flag is not set
+		jsonSemaphore = xSemaphoreCreateMutex();// Create a semaphore to control
+		if( jsonSemaphore != NULL ) {
+			// The semaphore was created successfully.
+			// The semaphore can now be used.
+		}
 	#endif
 
 	// Setup line following sensor
