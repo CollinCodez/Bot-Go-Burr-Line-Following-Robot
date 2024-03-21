@@ -221,6 +221,8 @@
                 "B:\\Users\\Collin\\Documents\\Arduino\\libraries\\AsyncTCP\\src",
                 "B:\\Users\\Collin\\Documents\\Arduino\\libraries\\ESPAsyncWebServer\\src",
                 "C:\\Users\\Collin\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\2.0.11\\libraries\\FS\\src",
+                "B:\\Users\\Collin\\Documents\\Arduino\\libraries\\ElegantOTA\\src",
+                "C:\\Users\\Collin\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\2.0.11\\libraries\\Update\\src",
                 "B:\\Users\\Collin\\Documents\\Arduino\\libraries\\ArduinoJson\\src",
                 "B:\\Users\\Collin\\Documents\\Arduino\\libraries\\QTRSensors",
                 "C:\\Users\\Collin\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\2.0.11\\libraries\\Preferences\\src",

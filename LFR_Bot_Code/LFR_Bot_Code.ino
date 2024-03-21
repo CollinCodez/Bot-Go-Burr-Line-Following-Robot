@@ -6,7 +6,14 @@
 
 // #define CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS	1
 
+
+#define SERIAL_ENABLED 0
+#define NO_WIRELESS 0
+#define ENABLE_EDF 1
+
 #include <Arduino.h>
+
+#if (!NO_WIRELESS)
 #include <WiFi.h>
 #define CONFIG_ASYNC_TCP_RUNNING_CORE 1 // Set the core to run the Async TCP library on
 #include <AsyncTCP.h>// Used in the ESPAsyncWebServer library, included here to guarnatee the define is set as we want. 
@@ -14,10 +21,17 @@
 // #include <HTTPClient.h>
 // #include <WebServer.h>
 // #include <InfluxDbClient.h>
+#endif
+
 #include <ArduinoJson.h>// Library for JSON parsing. This is a more efficient alternative to the arduino built in JSON library
 #include <QTRSensors.h>// Library for the line following sensors
 #include <Preferences.h>// Library to store data in the ESP32's flash memory. This will be used for persistent storage of the PID constants, when saveConstants is called
-#include <DShotRMT.h>// Library for DShot Motor Control
+
+#if (ENABLE_EDF == 1)
+	#include <DShotRMT.h>// Library for the DShot protocol, used to control the EDF
+#elif (ENABLE_EDF == 2)
+	#include <ESC.h>// Library for the DShot protocol, used to control the EDF
+#endif
 
 
 
@@ -192,6 +206,45 @@ unsigned long updateOutputTimeTaken = 0;
 bool logRunTimes = false;// = 1 if we want to log the run times of the main control loop
 
 
+// EDF Variables
+#if (ENABLE_EDF >= 1)
+	typedef enum{
+		EDF_UNINITIALIZED = 0,
+		EDF_STOPPED = 1,
+		EDF_RUNNING = 2
+	} EDFState;
+
+	EDFState edfState = EDF_UNINITIALIZED;
+
+	#if NO_WIRELESS
+		const TickType_t edfRunTime = pdMS_TO_TICKS(45000);								// Time for the EDF to Run before shutting off, currently 45 seconds
+	#endif
+#endif
+#if (ENABLE_EDF == 1)
+	const rmt_channel_t edfRmtChannel = RMT_CHANNEL_3;
+	DShotRMT edf;
+
+	const uint16_t edfMinSpeed = 48;							// Minimum Speed of the ducted fan. This is the speed sent for if the fan is off.
+	const uint16_t edfAbsMaxSpeed = 2047;						// Absolute Maximum Speed of the Ducted Fan
+	uint16_t edfMaxSpeed = 800;									// Current Limited Target Speed of the EDF
+	uint16_t newEDFMaxSpeed = edfMaxSpeed;						// New Speed of the EDF, updated from the Web UI
+
+	uint16_t edfCurrentSpeed = edfMinSpeed;						// Current actual set speed of the EDF
+	TickType_t lastEDFCommandTime = 0;							// Time of the last command sent to the EDF
+#endif
+#if (ENABLE_EDF == 2)
+	const uint16_t edfMinSpeed = 1000;							// Minimum Speed of the ducted fan. This is the speed sent for if the fan is off.
+	const uint16_t edfAbsMaxSpeed = 2000;						// Absolute Maximum Speed of the Ducted Fan
+	uint16_t edfMaxSpeed = 1100;									// Current Limited Target Speed of the EDF
+	uint16_t newEDFMaxSpeed = edfMaxSpeed;						// New Speed of the EDF, updated from the Web UI
+
+	uint16_t edfCurrentSpeed = edfMinSpeed;						// Current actual set speed of the EDF
+
+
+	ESC edf (edfPin, edfMinSpeed, edfAbsMaxSpeed, 500); // Create an ESC object: ESC_Name (PIN, Minimum Value, Maximum Value, Arm Value)
+#endif
+
+
 // Task Delays
 const TickType_t batCheckDelay = 15000 / portTICK_PERIOD_MS; // Value in ms
 // const TickType_t controlLoopInterval = 10 / portTICK_PERIOD_MS; // Value in ms
@@ -203,17 +256,25 @@ const TickType_t uiDataSendInterval = 45000 / portTICK_PERIOD_MS; // Value in ms
 TaskHandle_t mainControlLoopTask;
 TaskHandle_t sendDataToUITask;
 TaskHandle_t readBatteryVoltagesTask;
-
+#if (ENABLE_EDF >= 1)
+	TaskHandle_t edfControlTask;
+#endif
+#if (ENABLE_EDF == 1)
+	TaskHandle_t edfSpeedControlTask;
+#endif
 
 // Event Group for Tasks and related Defines
 typedef enum{
 	SEND_DATA = 0x01,
 	CALIBRATE_SENSOR = 0x02,
-	SEND_STATE_INFO = 0x04,
+	INIT_EDF = 0x04,
 	START_BOT = 0x08,
 	STOP_BOT = 0x10,
 	START_EDF = 0x20,
-	STOP_EDF = 0x40
+	STOP_EDF = 0x40,
+	CHANGE_EDF_SPEED = 0x80,
+	BEGIN_EDF_SPEED_TASK = 0x100,
+	STOP_EDF_SPEED_TASK = 0x200
 } EventFlags;
 EventGroupHandle_t mainEventGroup;
 
@@ -298,6 +359,30 @@ void setupMotors(){
 
 
 // Function to setup the EDF
+#if (ENABLE_EDF >= 1)
+void initEDF(){
+	#if (ENABLE_EDF == 1)
+		edf.install(edfPin, edfRmtChannel);	// Install the DShotRMT object to the pin and RMT channel
+		edf.init();							// Initialize the DShotRMT EDF
+
+		xEventGroupSetBits(mainEventGroup, BEGIN_EDF_SPEED_TASK);// Set the BEGIN_EDF_SPEED_TASK bit to start the EDF speed control task, to maintain the EDF speed (Starting with the EDF off)
+	#endif
+	#if (ENABLE_EDF == 2)
+		edf.arm();							// Arm the EDF
+		edf.speed(edfMinSpeed);			// Set the EDF to the minimum speed
+		edfCurrentSpeed = edfMinSpeed;		// Set the current speed of the EDF to the minimum speed
+	#endif
+
+	edfState = EDF_STOPPED;				// Set the EDF state to stopped
+	#if (!NO_WIRELESS)
+		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);								// Wait for the JSON object to be free (not being sent to the web UI)
+		messageJSON["edfState"] = edfState;
+		xSemaphoreGive(jsonSemaphore);											// Give the JSON object back to the main control loop
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+	#endif
+}
+#endif
+
 
 
 
@@ -334,17 +419,25 @@ void selectCommand(char* msg){
 
 		// Check what the message is and set the appropriate bit in the event group
 	if (strcmp(cmd, "startBot") == 0) {
-			xEventGroupSetBits(mainEventGroup, START_BOT);// Set the START_BOT bit
+		xEventGroupSetBits(mainEventGroup, START_BOT);			// Set the START_BOT bit
 	}else if (strcmp(cmd, "stopBot") == 0) {
-			xEventGroupSetBits(mainEventGroup, STOP_BOT);// Set the STOP_BOT bit
+		xEventGroupSetBits(mainEventGroup, STOP_BOT);			// Set the STOP_BOT bit
 	}else if (strcmp(cmd, "calibrateSensor") == 0) {
-			xEventGroupSetBits(mainEventGroup, CALIBRATE_SENSOR);// Set the CALIBRATE_SENSOR bit
-	}else if (strcmp(cmd, "sendStateInfo") == 0) {
-			xEventGroupSetBits(mainEventGroup, SEND_STATE_INFO);// Set the READ_SENSORS bit
+		xEventGroupSetBits(mainEventGroup, CALIBRATE_SENSOR);	// Set the CALIBRATE_SENSOR bit
+#if (ENABLE_EDF >= 1)
+	}else if (strcmp(cmd, "initEDF") == 0) {
+		xEventGroupSetBits(mainEventGroup, INIT_EDF);			// Set the READ_SENSORS bit
 	}else if (strcmp(cmd, "startEDF") == 0) {
-			xEventGroupSetBits(mainEventGroup, START_EDF);// Set the START_EDF bit
+		xEventGroupSetBits(mainEventGroup, START_EDF);			// Set the START_EDF bit
 	}else if (strcmp(cmd, "stopEDF") == 0) {
-			xEventGroupSetBits(mainEventGroup, STOP_EDF);// Set the STOP_EDF bit
+		xEventGroupSetBits(mainEventGroup, STOP_EDF);			// Set the STOP_EDF bit
+	}else if (strcmp(cmd, "setEDFSpeed") == 0) {
+		newEDFMaxSpeed = doc["newEDFSpeed"];
+		xEventGroupSetBits(mainEventGroup, CHANGE_EDF_SPEED);	// Set the CHANGE_EDF_SPEED bit
+	}else if (strcmp(cmd, "getEDFInfo") == 0) {					// Send the current state of the EDF to the web UI
+		getEDFInfo();
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+#endif
 	}else if (strcmp(cmd, "updatePID") == 0) {
 		newKp = doc["Kp"];
 		newKp2 = doc["Kp2"];
@@ -393,6 +486,9 @@ void selectCommand(char* msg){
 		readBatteryVoltages();
 		getPIDConstants();
 		getMotorMaxSpeed();
+		#if (ENABLE_EDF >= 1)
+			getEDFInfo();
+		#endif
 		messageJSON["logRunTimes"] = logRunTimes;
 		// messageJSON["message"] = "getState command received. This is a test message";
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
@@ -588,8 +684,20 @@ void getMotorMaxSpeed(){
 	while(sendingJSON || mainTaskEditingJSON);// Wait for the JSON object to be free (not being sent to the web UI)
 	messageJSON["motorMaxSpeed"] = motorMaxSpeed;
 	messageJSON["motorAbsMaxSpeed"] = motorAbsMaxSpeed;
-}
 
+
+
+// Get the EDF maximum speed and current state for the Web UI
+#if (ENABLE_EDF >= 1)
+void getEDFInfo(){
+	xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
+	messageJSON["edfMinSpeed"] = edfMinSpeed;
+	messageJSON["edfMaxSpeed"] = edfMaxSpeed;
+	messageJSON["edfAbsMaxSpeed"] = edfAbsMaxSpeed;
+	messageJSON["edfState"] = edfState;
+	xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
+}
+#endif
 
 
 
@@ -683,14 +791,68 @@ void setMotorSpeeds(){
 
 
 
+#if (ENABLE_EDF >= 1)
+// Function to ramp the EDF speed up or down. This function came from the DShotRMT library example, with some modifications
+void rampEDFThrottle(int start, int stop, int step)
+{
+	if (step == 0)
+		return;
+
+	for (int i = start; step > 0 ? i < stop : i > stop; i += step)
+	{
+		#if (ENABLE_EDF == 1)
+			// edf.sendThrottle(i);
+			edfCurrentSpeed = i;
+			vTaskDelay(1);
+		#endif
+		#if (ENABLE_EDF == 2)
+			edf.speed(i);
+			edfCurrentSpeed = i;
+			vTaskDelay(5);
+		#endif
+	}
+	#if (ENABLE_EDF == 1)
+		// edf.sendThrottle(stop);
+		edfCurrentSpeed = stop;
+	#endif
+	#if (ENABLE_EDF == 2)
+		edf.speed(stop);
+		edfCurrentSpeed = stop;
+	#endif
+}
+
+
+
 // Function to start the EDF
+void startEDF(){
+	if(edfState == EDF_STOPPED){
+		edfState = EDF_RUNNING;
+		rampEDFThrottle(edfMinSpeed, edfMaxSpeed, 1);
+		#if (!NO_WIRELESS)
+			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
+			messageJSON["edfState"] = edfState;
+			xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
+			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		#endif
+	}
+}
+
 
 
 // Function to stop the EDF
-
-
-// Function to set the EDF Speed
-
+void stopEDF(){
+	if(edfState == EDF_RUNNING){
+		rampEDFThrottle(edfMaxSpeed, edfMinSpeed, -5);
+		edfState = EDF_STOPPED;
+		#if (!NO_WIRELESS)
+			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
+			messageJSON["edfState"] = edfState;
+			xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
+			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		#endif
+	}
+}
+#endif// ENABLE_EDF
 
 
 
@@ -843,6 +1005,86 @@ void mainControlLoop(void *pvParameters){
 
 
 
+#if (ENABLE_EDF >= 1)
+// EDF Control Loop Task, Running at Priority 1 on Core 1
+void edfMainControlLoop(void *pvParameters){
+	#if SERIAL_ENABLED
+		Serial.println("EDF Control Loop Task Running");
+	#endif
+	while(true){
+		// Wait for the INIT_EDF, START_EDF or STOP_EDF bit to be set
+		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, INIT_EDF | START_EDF | STOP_EDF | CHANGE_EDF_SPEED, pdTRUE, pdFALSE, portMAX_DELAY);
+
+		if((bits & INIT_EDF) != 0){// if the Init EDF Command was Received
+			#if SERIAL_ENABLED
+				Serial.println("Initializing EDF\n");
+			#endif
+			// Initialize the EDF
+			initEDF();
+		}
+
+		if((bits & START_EDF) != 0){// if the Start EDF Command was Received
+			#if SERIAL_ENABLED
+				Serial.println("Starting EDF\n");
+			#endif
+			// Start the EDF
+			startEDF();
+			#if NO_WIRELESS
+				vTaskDelay(edfRunTime);
+				xEventGroupSetBits(mainEventGroup, STOP_EDF);
+			#endif
+		}
+
+		if((bits & STOP_EDF) != 0){// if the Stop EDF Command was Received
+			#if SERIAL_ENABLED
+				Serial.println("Stopping EDF\n");
+			#endif
+			// Stop the EDF
+			stopEDF();
+		}
+
+		if((bits & CHANGE_EDF_SPEED) != 0){// if the Change EDF Speed Command was Received
+			#if SERIAL_ENABLED
+				Serial.println("Changing EDF Speed\n");
+			#endif
+			// Change the EDF Max Speed
+			if(edfState == EDF_RUNNING){// If the EDF is running
+				rampEDFThrottle(edfCurrentSpeed, newEDFMaxSpeed, 1);
+			}
+			edfMaxSpeed = newEDFMaxSpeed;
+		}
+	}
+}
+#endif // ENABLE_EDF >= 1
+
+
+
+#if (ENABLE_EDF == 1)
+// EDF Speed Setting Loop Task, Running at Priority 2 on Core 1
+void edfSpeedCmdLoop(void *pvParameters){
+	#if SERIAL_ENABLED
+		Serial.println("EDF Speed Setting Loop Task Running");
+	#endif
+	while(true){
+		// Wait for the SET_EDF_SPEED bit to be set
+		EventBits_t bits = xEventGroupWaitBits(mainEventGroup, BEGIN_EDF_SPEED_TASK, pdTRUE, pdFALSE, portMAX_DELAY);
+
+		if((bits & BEGIN_EDF_SPEED_TASK) != 0){								// if the Command to start this loop was Received
+			lastEDFCommandTime = xTaskGetTickCount();															// Set the last EDF command time to the current time
+			EventBits_t tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_EDF_SPEED_TASK, pdTRUE, pdFALSE, 0);	// Check if the STOP_EDF bit is set
+
+			while((tmpBits & STOP_EDF_SPEED_TASK) == 0){														// Start the loop for while the EDF is running. Exit if the STOP_EDF_SPEED_TASK bit is set
+				edf.sendThrottle(edfCurrentSpeed);																// Set the EDF Speed
+				tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_EDF_SPEED_TASK, pdTRUE, pdFALSE, 0);			// Check if the STOP_EDF_SPEED_TASK bit is set
+				xTaskDelayUntil(&lastEDFCommandTime, pdMS_TO_TICKS(1));											// Delay for 1 millisecond from the start of this loop, to have a 1kHz update rate
+			}
+		}
+	}
+}
+#endif // ENABLE_EDF == 1
+
+
+
 
 
 //======================================================================================================
@@ -934,11 +1176,48 @@ void setup(){// this will automaticlally run on core 1
 		0					// Core 0. This task should get this core to itself
 	);
 	#endif // !NO_WIRELESS
+
+	#if (ENABLE_EDF >= 1)
+		// Create the main EDF control loop task
+		xTaskCreatePinnedToCore(
+			edfMainControlLoop,	 // Task Function
+			"EDF Control Loop", // Task Name
+			10000,				// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
+			NULL,				// Parameters
+			1,					// Priority 1
+			&edfControlTask,// Task Handle
+			#if NO_WIRELESS
+				0				// Core 0 if there is no wireless
+			#else
+				1				// Core 1 if there is wireless, so the main control loop can run on core 0
 	#endif
+		);
+	#endif // ENABLE_EDF >= 1
+
+	#if (ENABLE_EDF == 1)
+		// Create the EDF Speed Setting Loop Task
+		xTaskCreatePinnedToCore(
+			edfSpeedCmdLoop,	 // Task Function
+			"EDF Speed Setting Loop", // Task Name
+			5000,				// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
+			NULL,				// Parameters
+			2,					// Priority 2
+			&edfSpeedControlTask,// Task Handle
+			#if NO_WIRELESS
+				0				// Core 0 if there is no wireless
+			#else
+				1				// Core 1 if there is wireless, so the main control loop can run on core 0
+			#endif
+		);
+	#endif // ENABLE_EDF == 1
 
 	#if NO_WIRELESS
 		calibrateSensor();
-		digitalWrite(motorStandbyPin, HIGH);
+		#if (ENABLE_EDF >= 1)
+			xEventGroupSetBits(mainEventGroup, INIT_EDF);
+			xEventGroupSetBits(mainEventGroup, START_EDF);// Start the EDF. When NO_WIRELESS is defined, this will make the EDF run for the duration of edfRunTime then automatically stop
+		#endif
+		vTaskDelay(pdMS_TO_TICKS(1000));// Delay for 1 second
 	#endif
 
 
