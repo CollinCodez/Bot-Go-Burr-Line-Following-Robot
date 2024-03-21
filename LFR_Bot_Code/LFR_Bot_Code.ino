@@ -10,6 +10,7 @@
 #define SERIAL_ENABLED 0
 #define NO_WIRELESS 0
 #define ENABLE_EDF 1
+#define HALF_SENSORS 0
 
 #include <Arduino.h>
 
@@ -49,15 +50,21 @@ const gpio_num_t leftMotorPWMPin = GPIO_NUM_22;
 const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 
 // Sensor Pins  
-const uint8_t sensorPins[] = {18, 1, 5, 3, 17, 32, 16, 27, 4, 14, 0, 12, 2, 13, 15};
+#if HALF_SENSORS
+	// const uint8_t sensorPins[] = {18, 26, 5, 25, 17, 32, 16, 27, 4, 14, 21, 12, 2, 13, 15};
+	const uint8_t sensorPins[] =    {18,    5,    17,     16,     4,     21,     2,     15};
+	const uint8_t sensorCount = 8; // This is NOT a pin.
+#else
+	const uint8_t sensorPins[] = {18, 26, 5, 25, 17, 32, 16, 27, 4, 14, 21, 12, 2, 13, 15};
 const uint8_t sensorCount = 15; // This is NOT a pin.
+#endif
 
 const gpio_num_t sensorEmitterPinOdd = GPIO_NUM_19;
 const gpio_num_t sensorEmitterPinEven = GPIO_NUM_33;
 
 
 // EDF pin
-const gpio_num_t edfPin = GPIO_NUM_21;
+const gpio_num_t edfPin = GPIO_NUM_0;
 
 
 
@@ -118,8 +125,13 @@ QTRSensors qtr;
 uint16_t sensorValues[sensorCount];
 uint16_t sensorLinePosition;
 uint16_t checkedSensorLinePosition;
-const QTRReadMode sensorReadMode = QTRReadMode::OddEven;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
+#if HALF_SENSORS
+	const uint16_t sensorCheckThreshold = 0;11112``7q`3
+	const QTRReadMode sensorReadMode = QTRReadMode::On;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
+#else
 const uint16_t sensorCheckThreshold = 6000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
+	const QTRReadMode sensorReadMode = QTRReadMode::On;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
+#endif
 
 
 // Motor PWM Properties
@@ -134,7 +146,11 @@ const uint8_t rightMotorPWMChannel = 1;
 
 
 // PID Variables
+#if HALF_SENSORS
+	const uint16_t setpoint = 3500;// Output Value if the line is under the middle sensor
+#else
 const uint16_t setpoint = 7000;// Output Value if the line is under the middle sensor
+#endif
 
 const float defaultKp = 0.9;							// Default Proportional constant
 const float defaultKp2 = 0.0;							// Default Proportional^2 constant
@@ -178,10 +194,10 @@ SemaphoreHandle_t jsonSemaphore;	// Semaphore to control access to the JSON obje
 
 
 // Main Control Loop Wait times
-const unsigned long readSensorsTime = 10;		// Read Sensors from thermistor every this many milliseconds
-const unsigned long runControllerTime = 10;		// Run the control portion of the code every this many milliseconds
+const unsigned long readSensorsTime = 7;		// Read Sensors from thermistor every this many milliseconds
+const unsigned long runControllerTime = readSensorsTime;		// Run the control portion of the code every this many milliseconds
 const float runControllerTimeSecs = runControllerTime /1000.;
-const unsigned long updateOutputTime = 10;		// Update output every this many milliseconds
+const unsigned long updateOutputTime = readSensorsTime;		// Update output every this many milliseconds
 const unsigned long logDataTime = 1000;			// Send data to the web UI every this many milliseconds
 
 // Main Control Loop run time logs
@@ -945,7 +961,11 @@ void mainControlLoop(void *pvParameters){
 					lastReadSensorsTime = currentMillis;
 					// Read Sensor Values
 					sensorLinePosition = qtr.readLineBlack(sensorValues, sensorReadMode);
+				#if HALF_SENSORS
+					if((sensorLinePosition == 0 && checkedSensorLinePosition >= (7000 - sensorCheckThreshold)) || (sensorLinePosition == 7000 && checkedSensorLinePosition <= sensorCheckThreshold)){
+				#else
 					if((sensorLinePosition == 0 && checkedSensorLinePosition >= (14000 - sensorCheckThreshold)) || (sensorLinePosition == 14000 && checkedSensorLinePosition <= sensorCheckThreshold)){
+				#endif
 						// If the sensor values went from one extreme to the other, then the line is probably lost, so we should hold the last known position
 						// checkedSensorLinePosition = checkedSensorLinePosition;
 					}else{
