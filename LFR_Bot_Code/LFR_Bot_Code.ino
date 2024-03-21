@@ -19,6 +19,8 @@
 #define CONFIG_ASYNC_TCP_RUNNING_CORE 1 // Set the core to run the Async TCP library on
 #include <AsyncTCP.h>// Used in the ESPAsyncWebServer library, included here to guarnatee the define is set as we want. 
 #include <ESPAsyncWebServer.h>// This will automatically use whatever core is available, at priority 3
+	#include <ElegantOTA.h>// Library for Over The Air (OTA) updates
+	// #include <AsyncUDP.h>// Library for UDP communication
 // #include <HTTPClient.h>
 // #include <WebServer.h>
 // #include <InfluxDbClient.h>
@@ -1163,6 +1165,7 @@ void setup(){// this will automaticlally run on core 1
 
 	// Set Up WebSocket
 	#if (!NO_WIRELESS)
+		ElegantOTA.begin(&server);
 	initWebSocket();
 	server.begin();// Start the web server. Automatically makes a new task at priority 3, on whatever core is available.
 	#endif
