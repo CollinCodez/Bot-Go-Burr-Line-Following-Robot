@@ -7,6 +7,7 @@
 <!DOCTYPE html>
 <html>
 	<script src="{{url_for('static', filename='js/main.js')}}"></script>
+	<script src="https://code.highcharts.com/highcharts.js"></script>
 	<link rel="stylesheet" type="text/css" href="{{url_for('static', filename='css/main.css')}}">
 	<head>
 		<title>LFR Dashboard</title>
@@ -29,10 +30,10 @@
 						<p class = "card-title">Bot Running?</p>
 						<p class = "card-value"><span id="botRunning"></span></p>
 					</button>
-					<div class = "card">
+					<button class = "card" id="edfButton" onclick="toggleEDF()">
 						<p class = "card-title">EDF Running?</p>
-						<p class = "card-value"><span id="edfRunning"></span></p>
-					</div>
+						<p class = "card-value"><span id="edfState"></span></p>
+					</button>
 				</div>
 				<br>
 				<div class = "card-grid"><!-- 2nd row of cards -->
@@ -81,6 +82,36 @@
 						<p class = "card-value"><span id="error"></span></p>
 					</div>
 				</div> -->
+				<br>
+				<!-- EDF Speed Control Cards -->
+				<div class="card-grid">
+					<div class = "card">
+						<p class = "card-title">EDF Min Speed</p>
+						<p class = "card-value"><span id="edfMinSpeed"></p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">EDF Lim. Max Speed</p>
+						<p class = "card-value"><span id="edfMaxSpeed"></span></p>
+					</div>
+					<div class = "card">
+						<p class = "card-title">EDF Abs Max Speed</p>
+						<p class = "card-value"><span id="edfAbsMaxSpeed"></p>
+					</div>
+				</div>
+				<br>
+				<form>
+					<div class = "card-grid">
+						<div class = "card">
+							<label for="newTmpEDFSpeed">New EDF Speed: </label>
+							<input type="number" id="newTmpEDFSpeed" step="1" name="newTmpEDFSpeed">
+						</div>
+					</div>
+				</form>
+				<button onclick="submitEDFForm()">Update EDF Speed</button>
+				<br>
+				<div id="chart-sensors" class="container"></div>
+				<div id="chart-error" class="container"></div>
+				<div id="chart-output" class="container"></div>
 			</div>
 			<!-- Section for PID info and Form -->
 			<div class = "content">

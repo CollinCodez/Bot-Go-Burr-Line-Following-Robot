@@ -1,12 +1,14 @@
-// This lists out all the commands that could be sent from the UI to the bot
+// This lists out all the commands that could be sent from the UI to the bot. This file is strictly for documentation and reference, and is not used by the code.
 {
 	"cmd":[
 		"startBot",
 		"stopBot",
 		"calibrateSensor",
-		"sendStateInfo",// Not yet implemented in the bot
-		"startEDF",// Not yet implemented in the bot
-		"stopEDF",// Not yet implemented in the bot
+		"initEDF",// Not yet implemented in the web UI
+		"startEDF",// Not yet implemented in the web UI
+		"stopEDF",// Not yet implemented in the web UI
+		"getEDFInfo",// Not yet implemented in the web UI
+		"setEDFSpeed",// Not yet implemented in the web UI
 		"getPID",
 		"updatePID",
 		"savePID",
@@ -22,5 +24,6 @@
 	"Kp2": 0.0,
 	"Ki": 0.0,
 	"Kd": 0.0,
-	"newMotorMaxSpeed": 1023
+	"newMotorMaxSpeed": 1023,
+	"newEDFSpeed": 1023
 }

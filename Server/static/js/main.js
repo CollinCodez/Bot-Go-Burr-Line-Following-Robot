@@ -14,6 +14,29 @@ var websocket;
 
 window.addEventListener('load', onload);// Initialize the websocket when the page is loaded
 
+const EDFState = Object.freeze({// Enum for the EDF State
+	UNINITIALIZED: 0,
+	STOPPED: 1,
+	RUNNING: 2
+});
+
+
+const outChartEnum = Object.freeze({// Enum for the series's of the output chart
+	pOut: 0,
+	p2Out: 1,
+	dOut: 2,
+	iOut: 3,
+	out: 4
+});
+
+
+var sensorVals = [];// Array to store the sensor values for the chart
+// Charts for the sensor values, error values, and output values
+var sensorsChart;
+var errorChart;
+var outputChart;
+
+
 //=======================================================
 // Bot Command Functions
 //=======================================================
@@ -180,7 +203,7 @@ function submitMaxSpeedForm() {
 
 // Trigger the ESP32 to send the current Sensor Values
 function readSensor() {
-	console.log('Sending the getSensorValues command');
+	console.log('Sending the getSensorVals command');
 	websocket.send(
 		JSON.stringify({
 			cmd: 'readSensor'
@@ -249,6 +272,95 @@ function getState() {
 
 
 
+// Function to send the initEDF command to the ESP32
+function initEDF() {
+	console.log('Sending the initEDF command');
+	websocket.send(
+		JSON.stringify({
+			cmd: 'initEDF'
+		})
+	);
+}
+
+
+
+// Function to send the startEDF command to the ESP32
+function startEDF() {
+	console.log('Sending the startEDF command');
+	websocket.send(
+		JSON.stringify({
+			cmd: 'startEDF'
+		})
+	);
+}
+
+
+
+// Function to send the stopEDF command to the ESP32
+function stopEDF() {
+	console.log('Sending the stopEDF command');
+	websocket.send(
+		JSON.stringify({
+			cmd: 'stopEDF'
+		})
+	);
+}
+
+
+
+// Function to toggle between EDF states. If the EDF is running, stop it. If it is stopped, start it. If it is uninitialized, initialize it.
+function toggleEDF() {
+	if (document.getElementById('edfState').innerHTML == EDFState.UNINITIALIZED) {
+		initEDF();
+	} else if (document.getElementById('edfState').innerHTML == EDFState.RUNNING) {
+		stopEDF();
+	} else if (document.getElementById('edfState').innerHTML == EDFState.STOPPED) {
+		startEDF();
+	}else{
+		console.log('Error: EDF state is not valid');
+		initEDF();
+	}
+}
+
+
+
+// function to update the EDF speed
+function submitEDFForm() {
+	const edfSpeedInput = document.getElementById('newTmpEDFSpeed').value;
+	var newEDFSpeed;
+	if (edfSpeedInput == '') {
+		newEDFSpeed = document.getElementById('edfSpeed').innerHTML.value;
+	}else if (edfSpeedInput < document.getElementById('edfMinSpeed').innerHTML.value) {
+		newEDFSpeed = document.getElementById('edfMinSpeed').innerHTML.value;
+	}else if (edfSpeedInput > document.getElementById('edfAbsMaxSpeed').innerHTML.value) {
+		newEDFSpeed = document.getElementById('edfAbsMaxSpeed').innerHTML.value;
+	}else {
+		newEDFSpeed = edfSpeedInput;
+	}
+	console.log('Sending the updateEDFSpeed command, with new EDF speed: ' + newEDFSpeed);
+	websocket.send(
+		JSON.stringify({
+			cmd: 'setEDFSpeed',
+			newEDFSpeed: newEDFSpeed
+		})
+	);
+	// setTimeout(getEDFInfo, 1000);// Get the new EDF speed after 1 second
+}
+
+
+
+// Function to get the current EDF speed and state
+function getEDFInfo() {
+	console.log('Sending the getEDFInfo command');
+	websocket.send(
+		JSON.stringify({
+			cmd: 'getEDFInfo'
+		})
+	);
+}
+
+
+
 
 
 //=======================================================
@@ -257,6 +369,7 @@ function getState() {
 
 function onload(event) {
 	initWebSocket();
+	setTimeout(prepCharts, 1000);
 }
 
 
@@ -275,6 +388,7 @@ function initWebSocket() {
 // Actions to take when the WebSocket connection is opened
 function onOpen(event) {
 	console.log('Websocket Connection opened');
+	document.getElementsByClassName('topnav')[0].style.backgroundColor = 'green';
 	setTimeout(getState, 1000);
 }
 
@@ -284,12 +398,15 @@ function onOpen(event) {
 function onClose(event) {
 	console.log('Websocket Connection closed');
 	setTimeout(initWebSocket, 2000);
+	document.getElementsByClassName('topnav')[0].style.backgroundColor = 'red';
 }
 
 
 
 // Function that receives the message from the ESP32 with the readings
 function onMessage(event) {
+	var curTime = (new Date()).getTime();// Save the current time, to be used in the charts
+
 	try {
 		tmp = JSON.parse(event.data);
 		if(tmp.message == undefined){
@@ -321,7 +438,37 @@ function onMessage(event) {
 					document.getElementById(runKey).innerHTML = runTimes[runKey];
 				}
 				continue;
-			}
+			}else if(key == "sensorVals"){// If the key is sensorVals, update the values of the sensor values in the JavaScript array
+				sensorVals = receivedObj[key];
+				sensorsChart.series[0].setData(sensorVals);
+				continue;
+			}else if(key == "outs"){// If the key is outs, update the values of the outputs in the charts
+				var outs = receivedObj[key];
+				
+				// Add the new point to the Error chart
+				if(errorChart.series[0].data.length > 15){// If the error chart has more than 100 points, remove the first point
+					errorChart.series[0].addPoint([curTime, outs.error], true, true, true);
+				}else{// Otherwise, just add the new point
+					errorChart.series[0].addPoint([curTime, outs.error], true, false, true);
+				}
+
+				// Add the new points to the Output chart
+				if (outputChart.series[0].data.length > 15) { // If the output chart has more than 100 points, remove the first point
+					outputChart.series[outChartEnum.pOut].addPoint([curTime, outs.pOut], false, true, true);
+					outputChart.series[outChartEnum.p2Out].addPoint([curTime, outs.p2Out], false, true, true);
+					outputChart.series[outChartEnum.dOut].addPoint([curTime, outs.dOut], false, true, true);
+					outputChart.series[outChartEnum.iOut].addPoint([curTime, outs.iOut], false, true, true);
+					outputChart.series[outChartEnum.out].addPoint([curTime, outs.out], true, true, true);
+				} else { // Otherwise, just add the new points
+					outputChart.series[outChartEnum.pOut].addPoint([curTime, outs.pOut], false, false, true);
+					outputChart.series[outChartEnum.p2Out].addPoint([curTime, outs.p2Out], false, false, true);
+					outputChart.series[outChartEnum.dOut].addPoint([curTime, outs.dOut], false, false, true);
+					outputChart.series[outChartEnum.iOut].addPoint([curTime, outs.iOut], false, false, true);
+					outputChart.series[outChartEnum.out].addPoint([curTime, outs.out], true, false, true);
+				}
+
+				continue;
+			}// End of special keys
 
 			try{// Try to update the element with the id of the key
 				document.getElementById(key).innerHTML = receivedObj[key];
@@ -334,6 +481,8 @@ function onMessage(event) {
 				setCalibrateButtonColor(); // Call setCalibrateButtonColor after updating the calibrating element
 			} else if (key === "botRunning") {
 				setBotRunningButtonColor(); // Call setBotRunningButtonColor after updating the botRunning element
+			} else if (key === "edfState") {
+				setEDFButtonColor(); // Call setEDFButtonColor after updating the edfState element
 			}
 		}
 	}
@@ -365,4 +514,159 @@ function setBotRunningButtonColor() {
 	} else {
 		document.getElementById('botRunningButton').style.backgroundColor = 'green';
 	}
+}
+
+
+
+// Set the color of the edf button based on the state of the EDF
+function setEDFButtonColor() {
+	if (document.getElementById('edfState').innerHTML == EDFState.UNINITIALIZED) {
+		document.getElementById('edfButton').style.backgroundColor = 'yellow';
+	}else if (document.getElementById('edfState').innerHTML == EDFState.RUNNING) {
+		document.getElementById('edfButton').style.backgroundColor = 'red';
+	} else {
+		document.getElementById('edfButton').style.backgroundColor = 'green';
+	}
+}
+
+
+
+function prepCharts(){
+	sensorsChart = new Highcharts.Chart({
+		chart: {
+			renderTo: 'chart-sensors',
+			type: 'spline',
+			animation: false
+		},
+		title: { text: 'Sensor Values' },
+		xAxis:{
+			categories: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]
+		},
+		yAxis: {
+			title: {
+				text: 'Read Time'
+			},
+			labels: {
+				format: '{value} us'
+			},
+			min: 0,
+			max: 1000
+		},
+		plotOptions: {
+			spline: {
+				marker: {
+					radius: 4,
+					lineColor: '#666666',
+					lineWidth: 1
+				}
+			},
+		},
+		series: [{
+			name: 'Sensor Readings',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: sensorVals
+		}]
+	});
+
+	errorChart = new Highcharts.Chart({
+		chart: {
+			renderTo: 'chart-error',
+			animation: false
+		},
+		title: { text: 'Error Values' },
+		series: [{
+			showInLegend: false,
+			data: []
+		}],
+		xAxis: { type: 'datetime',
+			dateTimeLabelFormats: { second: '%H:%M:%S' }
+		},
+		yAxis: {
+			title: {
+				text: 'Error'
+			},
+			labels: {
+				format: '{value}'
+			},
+			min: -7000,
+			max: 7000
+		},
+		plotOptions: {
+			line: { animation: false,
+				dataLabels: { enabled: true }
+			},
+			series: { color: '#059e8a' }
+		},
+		series: [{
+			name: 'Error Values',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}],
+		credits: { enabled: false }
+	});
+
+
+	outputChart = new Highcharts.Chart({
+		chart: {
+			renderTo: 'chart-output',
+			animation: false,
+			height: "75%"
+		},
+		title: { text: 'Output Values' },
+		xAxis: { type: 'datetime',
+			dateTimeLabelFormats: { second: '%H:%M:%S' }
+		},
+		yAxis: {
+			title: {
+				text: 'Output'
+			},
+			labels: {
+				format: '{value}'
+			},
+			min: -1023,
+			max: 1023
+		},
+		plotOptions: {
+			line: { animation: false,
+				dataLabels: { enabled: true }
+			},
+			// series: { color: '#059e8a' }
+		},
+		series: [{
+			name: 'pOut',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}, {
+			name: 'p2Out',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}, {
+			name: 'dOut',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}, {
+			name: 'iOut',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}, {
+			name: 'out',
+			marker: {
+				symbol: 'diamond'
+			},
+			data: []
+		}],
+		credits: { enabled: false }
+	});
 }

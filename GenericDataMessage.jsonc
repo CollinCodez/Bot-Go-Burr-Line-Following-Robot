@@ -1,15 +1,26 @@
-// This lays out all the data that could be sent from the bot to the UI
+// This lays out all the data that could be sent from the bot to the UI. This file is strictly for documentation and reference, and is not used by the code.
 {
 	"mainBaVtoltage": 7.4,
 	"fanBatVoltage": 7.4,
 	"message": "message from the bot here",
 	"calibrating": false,
 	"botRunning": false,
-	"edfRunning": false, // Not yet implemented in the bot
+	"edfState": 0,
+	"edfMinSpeed": 0,
+	"edfMaxSpeed": 0,
+	"edfAbsMaxSpeed": 0,
 	"motorMaxSpeed": 1023,
 	"motorAbsMaxSpeed": 1023,
 	"sensorLinePosition": 0,
+	"sensorVals": [0,0,0,0,0,0,0,0,0,0],
 	"logRunTimes": false,
+	"outs":{
+		"pOut": 0,
+		"p2Out": 0,
+		"iOut": 0,
+		"dOut": 0,
+		"error": 0
+	},
 	"consts":{
 		"kp": 0.0,
 		"kp2": 0.0,

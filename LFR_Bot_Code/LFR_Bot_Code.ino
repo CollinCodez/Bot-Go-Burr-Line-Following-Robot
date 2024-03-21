@@ -15,15 +15,15 @@
 #include <Arduino.h>
 
 #if (!NO_WIRELESS)
-#include <WiFi.h>
-#define CONFIG_ASYNC_TCP_RUNNING_CORE 1 // Set the core to run the Async TCP library on
-#include <AsyncTCP.h>// Used in the ESPAsyncWebServer library, included here to guarnatee the define is set as we want. 
-#include <ESPAsyncWebServer.h>// This will automatically use whatever core is available, at priority 3
+	#include <WiFi.h>
+	#define CONFIG_ASYNC_TCP_RUNNING_CORE 1 // Set the core to run the Async TCP library on
+	#include <AsyncTCP.h>// Used in the ESPAsyncWebServer library, included here to guarnatee the define is set as we want. 
+	#include <ESPAsyncWebServer.h>// This will automatically use whatever core is available, at priority 3
 	#include <ElegantOTA.h>// Library for Over The Air (OTA) updates
 	// #include <AsyncUDP.h>// Library for UDP communication
-// #include <HTTPClient.h>
-// #include <WebServer.h>
-// #include <InfluxDbClient.h>
+	// #include <HTTPClient.h>
+	// #include <WebServer.h>
+	// #include <InfluxDbClient.h>
 #endif
 
 #include <ArduinoJson.h>// Library for JSON parsing. This is a more efficient alternative to the arduino built in JSON library
@@ -51,14 +51,14 @@ const gpio_num_t fanBatPin = GPIO_NUM_39;// GPIO39 - ADC 3
 const gpio_num_t leftMotorPWMPin = GPIO_NUM_22;
 const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 
-// Sensor Pins  
+// Sensor Pins
 #if HALF_SENSORS
 	// const uint8_t sensorPins[] = {18, 26, 5, 25, 17, 32, 16, 27, 4, 14, 21, 12, 2, 13, 15};
 	const uint8_t sensorPins[] =    {18,    5,    17,     16,     4,     21,     2,     15};
 	const uint8_t sensorCount = 8; // This is NOT a pin.
 #else
 	const uint8_t sensorPins[] = {18, 26, 5, 25, 17, 32, 16, 27, 4, 14, 21, 12, 2, 13, 15};
-const uint8_t sensorCount = 15; // This is NOT a pin.
+	const uint8_t sensorCount = 15; // This is NOT a pin.
 #endif
 
 const gpio_num_t sensorEmitterPinOdd = GPIO_NUM_19;
@@ -131,7 +131,7 @@ uint16_t checkedSensorLinePosition;
 	const uint16_t sensorCheckThreshold = 0;11112``7q`3
 	const QTRReadMode sensorReadMode = QTRReadMode::On;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
 #else
-const uint16_t sensorCheckThreshold = 6000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
+	const uint16_t sensorCheckThreshold = 6000;// Threshold for the sensor to be considered on the line. This is the default value, and may need to be adjusted
 	const QTRReadMode sensorReadMode = QTRReadMode::On;// Read mode for the QTR Sensors. This is the default mode, and it reads the odd and even sensors, and turns off the rest
 #endif
 
@@ -151,7 +151,7 @@ const uint8_t rightMotorPWMChannel = 1;
 #if HALF_SENSORS
 	const uint16_t setpoint = 3500;// Output Value if the line is under the middle sensor
 #else
-const uint16_t setpoint = 7000;// Output Value if the line is under the middle sensor
+	const uint16_t setpoint = 7000;// Output Value if the line is under the middle sensor
 #endif
 
 const float defaultKp = 0.9;							// Default Proportional constant
@@ -180,6 +180,10 @@ double iError = 0.;											// Integral of error
 double dError = 0.;											// Derivative of error
 
 
+float pOutput = 0.;											// Proportional output
+float p2Output = 0.;											// Proportional^2 output
+float iOutput = 0.;											// Integral output
+float dOutput = 0.;											// Derivative output
 float output2 = 0.;											// Temporary value
 int32_t output = 0;											// Output to the motors
 float error;												// Setpoint minus measured value
@@ -322,9 +326,9 @@ void calibrateSensor(){
 	// Inform the Web UI that calibration is starting
 	#if (!NO_WIRELESS)
 		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
-	messageJSON["calibrating"] = true;
+		messageJSON["calibrating"] = true;
 		xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
-	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
 
 	qtr.resetCalibration(); // Reset the calibration, so we can start fresh each time the button is pressed.
@@ -338,11 +342,11 @@ void calibrateSensor(){
 	}
 
 	#if (!NO_WIRELESS)
-	// Inform Web UI that calibration is complete
+		// Inform Web UI that calibration is complete
 		xSemaphoreTake(jsonSemaphore,portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
-	messageJSON["calibrating"] = false;
+		messageJSON["calibrating"] = false;
 		xSemaphoreGive(jsonSemaphore);// Give the JSON object back
-	xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	#endif
 }
 
@@ -428,7 +432,7 @@ void selectCommand(char* msg){
 
 	const char* cmd = doc["cmd"];// Get the command from the JSON message
 
-		// Check what the message is and set the appropriate bit in the event group
+	// Check what the message is and set the appropriate bit in the event group
 	if (strcmp(cmd, "startBot") == 0) {
 		xEventGroupSetBits(mainEventGroup, START_BOT);			// Set the START_BOT bit
 	}else if (strcmp(cmd, "stopBot") == 0) {
@@ -471,6 +475,10 @@ void selectCommand(char* msg){
 		// Read the sensor values and send them to the web UI
 		xSemaphoreTake(jsonSemaphore, portMAX_DELAY);// Wait for the JSON object to be free (not being sent to the web UI)
 		messageJSON["sensorLinePosition"] = qtr.readLineBlack(sensorValues, sensorReadMode);// Read the sensor values and add them to the JSON object
+		JsonArray sensorVals = messageJSON["sensorVals"].to<JsonArray>();
+		for(int i = 0; i < sensorCount; i++){
+			sensorVals.add(sensorValues[i]);
+		}
 		xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 	}else if (strcmp(cmd, "cleariError") == 0) {
@@ -734,7 +742,7 @@ void calculatePID(){
 		updateConstants = false;
 	}
 
-	error = setpoint - checkedSensorLinePosition; 
+	error = setpoint - checkedSensorLinePosition;
 
 	lastErrorSign = errorSign;// Save the sign of the error from the last loop
 	if(error < 0){
@@ -768,7 +776,12 @@ void calculatePID(){
 	dError = dError/2.; // Average the derivative of error, with all points weighted equally
 	addPointToBuffer(&errorBuffer, error);
 
-	output2 = Kp*error + Kp2*error*error*errorSign + Ki*iError + Kd*dError + 0.5; // Output value
+	pOutput = Kp*error;	// Proportional term
+	p2Output = Kp2*error*error*errorSign;	// Proportional term
+	iOutput = Ki*iError;	// Integral term
+	dOutput = Kd*dError;	// Derivative term
+	// output2 = Kp*error + Kp2*error*error*errorSign + Ki*iError + Kd*dError + 0.5; // Output value
+	output2 = pOutput + p2Output + iOutput + dOutput + 0.5; // Output value
 	output = output2;	// Saving the Float output value to an Integer, to be used in the motor control function
 
 	// Check if Output is Saturated
@@ -1005,12 +1018,25 @@ void mainControlLoop(void *pvParameters){
 					BaseType_t status = xSemaphoreTake(jsonSemaphore, pdMS_TO_TICKS(readSensorsTime/4));// Wait for the JSON object to be free (not being sent to the web UI)
 					if(status == pdTRUE){// If the JSON object was successfully taken
 						// Add the sensor line position to the JSON object
-					if(logRunTimes){// If we want to log the run times of the main control loop
-						// Add the run times to the JSON object (in milliseconds)
-						JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
-						runTimes["sensorReadTime"] = readSensorsTimeTaken;
-						runTimes["calcPIDTime"] = runControllerTimeTaken;
-						runTimes["updateOutputTime"] = updateOutputTimeTaken;
+						messageJSON["sensorLinePosition"] = sensorLinePosition;
+						JsonArray sensorVals = messageJSON["sensorVals"].to<JsonArray>();
+						for(int i = 0; i < sensorCount; i++){
+							sensorVals.add(sensorValues[i]);
+						}
+						JsonObject outs = messageJSON["outs"].to<JsonObject>();
+						outs["pOut"] = pOutput;
+						outs["p2Out"] = p2Output;
+						outs["iOut"] = iOutput;
+						outs["dOut"] = dOutput;
+						outs["out"] = output;
+						outs["error"] = error;
+
+						if(logRunTimes){// If we want to log the run times of the main control loop
+							// Add the run times to the JSON object (in milliseconds)
+							JsonObject runTimes = messageJSON["runTimes"].to<JsonObject>();
+							runTimes["sensorReadTime"] = readSensorsTimeTaken;
+							runTimes["calcPIDTime"] = runControllerTimeTaken;
+							runTimes["updateOutputTime"] = updateOutputTimeTaken;
 						}
 						xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 						xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
@@ -1155,15 +1181,15 @@ void setup(){// this will automaticlally run on core 1
 
 	#if (!NO_WIRELESS)
 		if(Kp != defaultKp || Kp2 != defaultKp2 || Ki != defaultKi || Kd != defaultKd){// If the PID constants were found in the flash memory
-		// Send the PID constants to the web UI
-		JsonObject consts = messageJSON["consts"].to<JsonObject>();
-		consts["kp"] = Kp;
+			// Send the PID constants to the web UI
+			JsonObject consts = messageJSON["consts"].to<JsonObject>();
+			consts["kp"] = Kp;
 			consts["kp2"] = Kp2;
-		consts["ki"] = Ki;
-		consts["kd"] = Kd;
-		messageJSON["message"] = "PID Constants Loaded from Flash Memory";
-		xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
-	}
+			consts["ki"] = Ki;
+			consts["kd"] = Kd;
+			messageJSON["message"] = "PID Constants Loaded from Flash Memory";
+			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
+		}
 	#endif
 	
 	// Set up the motor pins
@@ -1172,47 +1198,47 @@ void setup(){// this will automaticlally run on core 1
 	// Set Up WebSocket
 	#if (!NO_WIRELESS)
 		ElegantOTA.begin(&server);
-	initWebSocket();
-	server.begin();// Start the web server. Automatically makes a new task at priority 3, on whatever core is available.
+		initWebSocket();
+		server.begin();// Start the web server. Automatically makes a new task at priority 3, on whatever core is available.
 	#endif
 
 	// Set Up Event Group
 	mainEventGroup = xEventGroupCreate();
 
 	#if (!NO_WIRELESS)
-	// Create Tasks
-	// Create Task for reading battery voltages
-	xTaskCreatePinnedToCore(
-		readBatteryVoltagesLoop,	 // Task Function
-		"Read Battery Voltages", // Task Name
-		1024,					// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
-		NULL,					// Parameters
-		1,						// Priority 1
-		&readBatteryVoltagesTask,// Task Handle
-		1						// Core 1
-	);
+		// Create Tasks
+		// Create Task for reading battery voltages
+		// xTaskCreatePinnedToCore(
+		// 	readBatteryVoltagesLoop,	 // Task Function
+		// 	"Read Battery Voltages", // Task Name
+		// 	1024,					// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
+		// 	NULL,					// Parameters
+		// 	1,						// Priority 1
+		// 	&readBatteryVoltagesTask,// Task Handle
+		// 	1						// Core 1
+		// );
 
-	// Create Task for sending data to the web UI
-	xTaskCreatePinnedToCore(
-		sendDataToUI,		// Task Function
-		"Send Data to Server",	// Task Name
-		10000,					// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
-		NULL,					// Parameters
+		// Create Task for sending data to the web UI
+		xTaskCreatePinnedToCore(
+			sendDataToUI,		// Task Function
+			"Send Data to Server",	// Task Name
+			10000,					// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
+			NULL,					// Parameters
 			3,						// Priority 3, so it is at the same priority as the recieving data task. This is to help prevent the two from getting locked up
-		&sendDataToUITask,		// Task Handle
-		1						// Core 1
-	);
+			&sendDataToUITask,		// Task Handle
+			1						// Core 1
+		);
 
-	// Create Task for the main control loop
-	xTaskCreatePinnedToCore(
-		mainControlLoop,	 // Task Function
-		"Main Control Loop", // Task Name
-		10000,				// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
-		NULL,				// Parameters
-		0,					// Priority 0, so it can run continuously
-		&mainControlLoopTask,// Task Handle
-		0					// Core 0. This task should get this core to itself
-	);
+		// Create Task for the main control loop
+		xTaskCreatePinnedToCore(
+			mainControlLoop,	 // Task Function
+			"Main Control Loop", // Task Name
+			10000,				// Stack Size, should check utilization later with uxTaskGetStackHighWaterMark
+			NULL,				// Parameters
+			0,					// Priority 0, so it can run continuously
+			&mainControlLoopTask,// Task Handle
+			0					// Core 0. This task should get this core to itself
+		);
 	#endif // !NO_WIRELESS
 
 	#if (ENABLE_EDF >= 1)
@@ -1228,7 +1254,7 @@ void setup(){// this will automaticlally run on core 1
 				0				// Core 0 if there is no wireless
 			#else
 				1				// Core 1 if there is wireless, so the main control loop can run on core 0
-	#endif
+			#endif
 		);
 	#endif // ENABLE_EDF >= 1
 
@@ -1297,7 +1323,7 @@ void loop(){// this will automatically run on core 1
 		// #else
 		// 	ws.printfAll("{\"message\": \"Send Data to UI Task High Water Mark: %u\\nMain Control Loop Task High Water Mark: %u\\nRead Battery Voltages Task High Water Mark: %u\\nFree Heap: %u\\n\"}", uxTaskGetStackHighWaterMark(sendDataToUITask), uxTaskGetStackHighWaterMark(mainControlLoopTask), uxTaskGetStackHighWaterMark(readBatteryVoltagesTask), ESP.getFreeHeap());
 		// #endif
-	vTaskDelay(wsClientCleanupInterval);// Delay for 15 seconds
+		vTaskDelay(wsClientCleanupInterval);// Delay for 15 seconds
 	#endif
 }
 
