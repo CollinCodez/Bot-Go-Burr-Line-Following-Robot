@@ -45,9 +45,6 @@
 const gpio_num_t mainBatPin = GPIO_NUM_36;// GPIO36 - ADC 0
 const gpio_num_t fanBatPin = GPIO_NUM_39;// GPIO39 - ADC 3
 
-// Motor Pins
-const gpio_num_t motorStandbyPin = GPIO_NUM_26;
-
 const gpio_num_t leftMotorPWMPin = GPIO_NUM_22;
 const gpio_num_t rightMotorPWMPin = GPIO_NUM_23;
 
@@ -335,12 +332,8 @@ void calibrateSensor(){
 // Function to setup the motor pins
 void setupMotors(){
 	// Set Motor Pins to Output
-	pinMode(motorStandbyPin, OUTPUT);
 	pinMode(leftMotorPWMPin, OUTPUT);
 	pinMode(rightMotorPWMPin, OUTPUT);
-
-	// Set the default states of the motor shift register outputs
-	digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver until we are ready to use it
 
 	// Set PWM Frequency and Resolution. ledc is the PWM library for the ESP32, since the ESP32 also has a true analog output
 	ledcSetup(leftMotorPWMChannel, motorPWMFreq, motorPWMResolution);
@@ -351,9 +344,10 @@ void setupMotors(){
 	ledcAttachPin(rightMotorPWMPin, rightMotorPWMChannel);
 
 	// Set PWM Values to Max Value to start
-	ledcWrite(leftMotorPWMChannel, motorMaxSpeed);
-	ledcWrite(rightMotorPWMChannel, motorMaxSpeed);
+	ledcWrite(leftMotorPWMChannel, 0);
+	ledcWrite(rightMotorPWMChannel, 0);
 }
+
 
 
 // Function to setup the EDF
@@ -935,7 +929,8 @@ void mainControlLoop(void *pvParameters){
 			xSemaphoreGive(jsonSemaphore);// Give the JSON object back to the main control loop
 			xEventGroupSetBits(mainEventGroup, SEND_DATA);// Set the SEND_DATA bit to send data to the web UI
 
-			digitalWrite(motorStandbyPin, HIGH);// Set Motor Standby Pin to High to Enable the motor driver
+			ledcWrite(leftMotorPWMChannel, motorMaxSpeed);// Set Motor Speeds to the maximum speed
+			ledcWrite(rightMotorPWMChannel, motorMaxSpeed);// Set Motor Speeds to the maximum speed
 
 			EventBits_t tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set
 
@@ -998,8 +993,9 @@ void mainControlLoop(void *pvParameters){
 				tmpBits = xEventGroupWaitBits(mainEventGroup, STOP_BOT, pdTRUE, pdFALSE, 0);// Check if the STOP_BOT bit is set, no wait time
 			}// End of the loop for while the bot is running. Exit if the STOP_BOT bit is set
 
-			// Set Motor Standby Pin to Low to Disable the motor driver
-			digitalWrite(motorStandbyPin, LOW);// Set Motor Standby Pin to Low to Disable the motor driver
+			// Stop the bot
+			ledcWrite(leftMotorPWMChannel, 0);
+			ledcWrite(rightMotorPWMChannel, 0);
 
 			// Inform the Web UI that the bot has stopped
 			xSemaphoreTake(jsonSemaphore, portMAX_DELAY);	// Wait for the JSON object to be free (not being sent to the web UI)
@@ -1231,6 +1227,8 @@ void setup(){// this will automaticlally run on core 1
 			xEventGroupSetBits(mainEventGroup, START_EDF);// Start the EDF. When NO_WIRELESS is defined, this will make the EDF run for the duration of edfRunTime then automatically stop
 		#endif
 		vTaskDelay(pdMS_TO_TICKS(1000));// Delay for 1 second
+		ledcWrite(leftMotorPWMChannel, motorMaxSpeed);// Set Motor Speeds to the maximum speed
+		ledcWrite(rightMotorPWMChannel, motorMaxSpeed);// Set Motor Speeds to the maximum speed
 	#endif
 
 
