@@ -9,7 +9,8 @@ Some nice features about our implementation include:
   - `NO_WIRELESS` - Setting to 1 will remove all wireless functionality from the code and greatly simplify the startup process. This will make the bot automatically begin calibration on power up, then start the main control loop, with no wireless functionality at all. This was added for reliability in case we were having issues with connectivity to the web interface, and reduced the number of tasks running on the ESP32.
   - `ENABLE_EDF` - Setting to 0 removes all ducted fan functionality from the code, setting it to 1 will use the DShotRMT library to control the ducted fan, and setting it to 2 will instead use an ESC library that utilizes the servo-like PWM control method (This was tested, but we did not have success with getting this library to work).
   - `HALF_SENSORS` - Setting this to 1 will make the robot use only every-other sensor, making the sensor act like an 8mm spaced, 8 sensor array. This was tested some for potentially faster and more reliable readings of the sensor, to allow for faster loop times and better control of the robot.
-- The addition of a Proportional<sup>2</sup> term in the PID control. This allows for hard changes near the ends of the sensor, while allowing the bot to have a sort of deadzone when going straight. 
+- The addition of a Proportional<sup>2</sup> term in the PID control. This allows for hard changes near the ends of the sensor, while allowing the bot to have a sort of deadzone when going straight.
+- The ability to wirelessly flash new firmware onto the robot, without having to plug it into the computer.
 
 ## Resources
 A number of different guides and libraries were used to make this project possible
