@@ -184,7 +184,8 @@ float output2 = 0.;											// Temporary value
 int32_t output = 0;											// Output to the motors
 float error;												// Setpoint minus measured value
 
-float errorSign;											// Sign of the error
+float errorSign = 1;											// Sign of the error
+float lastErrorSign = 1;										// Sign of the error from the last loop
 
 
 struct ringBuffer errorBuffer = {0};						// Ring Buffer to store error values
@@ -200,7 +201,7 @@ const unsigned long readSensorsTime = 7;		// Read Sensors from thermistor every 
 const unsigned long runControllerTime = readSensorsTime;		// Run the control portion of the code every this many milliseconds
 const float runControllerTimeSecs = runControllerTime /1000.;
 const unsigned long updateOutputTime = readSensorsTime;		// Update output every this many milliseconds
-const unsigned long logDataTime = 1000;			// Send data to the web UI every this many milliseconds
+const unsigned long logDataTime = 500;			// Send data to the web UI every this many milliseconds
 
 // Main Control Loop run time logs
 unsigned long currentMillis = 0;
@@ -735,6 +736,7 @@ void calculatePID(){
 
 	error = setpoint - checkedSensorLinePosition; 
 
+	lastErrorSign = errorSign;// Save the sign of the error from the last loop
 	if(error < 0){
 		errorSign = -1;
 	}
@@ -742,6 +744,10 @@ void calculatePID(){
 		errorSign = 1;
 	}
 
+	// Calculate Integral of error
+	if(lastErrorSign != errorSign){// Reset the integral of error if the sign of the error changes
+		iError = 0;
+	}
 	signsEqual = !(((*(uint32_t *) &error) ^ (*(uint32_t *) &output2)) & 0x80000000);	// 1 if error and output2 have the same sign
 	iClamp = signsEqual && saturated;													// 1 if the output is saturated AND error and output2 have the same sign
 	iError = iError + (error*runControllerTimeSecs) * !iClamp;	// Integral of error
