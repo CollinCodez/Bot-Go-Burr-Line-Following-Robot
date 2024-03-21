@@ -91,10 +91,8 @@ struct ringBuffer{
 //======================================================================================================
 
 // WiFi Credentials
-// #define WIFI_SSID "COLLIN-LAPTOP"
-// #define WIFI_PASSWORD "blinkyblinky"
-#define WIFI_SSID "Techman"
-#define WIFI_PASSWORD "Camo2070"
+#define WIFI_SSID "WIFI_NAME_HERE"
+#define WIFI_PASSWORD "Wifi_Password_Here"
 
 // Web Server Variables
 AsyncWebServer server(80);// Create AsyncWebServer object on port 80
